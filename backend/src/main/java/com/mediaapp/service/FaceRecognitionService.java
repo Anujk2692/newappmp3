@@ -1,0 +1,404 @@
+package com.mediaapp.service;
+
+import com.mediaapp.dto.FaceIdentifyResult;
+import com.mediaapp.dto.FaceStatusDto;
+import com.mediaapp.dto.LibraryScanResultDto;
+import com.mediaapp.dto.PersonDto;
+import com.mediaapp.dto.PersonPhotoDto;
+import com.mediaapp.model.Person;
+import com.mediaapp.model.PersonPhoto;
+import com.mediaapp.model.FaceViewAngle;
+import com.mediaapp.repository.PersonPhotoRepository;
+import com.mediaapp.repository.PersonRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.opencv.core.Mat;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.UUID;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class FaceRecognitionService {
+
+    private final PersonRepository personRepository;
+    private final PersonPhotoRepository personPhotoRepository;
+    private final Path facesPath;
+    private final FaceAiEngine faceAiEngine;
+
+    public FaceStatusDto getStatus() {
+        long count = 0;
+        try {
+            count = personRepository.count();
+        } catch (Exception e) {
+            log.warn("Could not count persons: {}", e.getMessage());
+        }
+        return FaceStatusDto.builder()
+                .engineReady(faceAiEngine.isReady())
+                .registeredCount((int) count)
+                .message(faceAiEngine.getStatusMessage())
+                .build();
+    }
+
+    public PersonDto registerPerson(String name, String notes, MultipartFile image, String viewHint)
+            throws IOException {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("Name is required");
+        }
+        if (image == null || image.isEmpty()) {
+            throw new IllegalArgumentException("Image is required");
+        }
+        if (!faceAiEngine.isReady()) {
+            throw new IllegalStateException("AI face engine not ready. Restart backend and check internet for model download.");
+        }
+
+        Files.createDirectories(facesPath);
+        String fileName = UUID.randomUUID() + "_" + sanitize(name) + getExtension(image.getOriginalFilename());
+        Path saved = facesPath.resolve(fileName);
+        Files.write(saved, image.getBytes());
+
+        if (!canReadImage(saved)) {
+            Files.deleteIfExists(saved);
+            throw new IllegalArgumentException(
+                    "Could not read photo. Use JPEG/PNG or pick again from gallery.");
+        }
+
+        FaceViewAngle hint = FaceViewAngle.fromHint(viewHint);
+        RegistrationFeature registration = faceAiEngine.extractRegistrationFeature(saved, hint);
+        if (registration == null || registration.getFeature() == null || registration.getFeature().empty()) {
+            Files.deleteIfExists(saved);
+            throw new IllegalArgumentException(
+                    "No face detected. Try front, side, or partial face — ensure face is visible.");
+        }
+
+        Person person = personRepository.findByNameIgnoreCase(name.trim())
+                .orElse(Person.builder()
+                        .name(name.trim())
+                        .notes(notes)
+                        .createdAt(Instant.now())
+                        .imagePaths(new ArrayList<>())
+                        .faceEmbeddings(new ArrayList<>())
+                        .faceViewAngles(new ArrayList<>())
+                        .build());
+
+        if (person.getImagePaths() == null) {
+            person.setImagePaths(new ArrayList<>());
+        }
+        if (person.getFaceEmbeddings() == null) {
+            person.setFaceEmbeddings(new ArrayList<>());
+        }
+        if (person.getFaceViewAngles() == null) {
+            person.setFaceViewAngles(new ArrayList<>());
+        }
+
+        person.getImagePaths().add(saved.toString());
+        person.getFaceEmbeddings().add(faceAiEngine.featureToList(registration.getFeature()));
+        person.getFaceViewAngles().add(registration.getDetectedAngle().name());
+        registration.getFeature().release();
+
+        person.setNotes(notes);
+        person.setUpdatedAt(Instant.now());
+        if (person.getCreatedAt() == null) {
+            person.setCreatedAt(Instant.now());
+        }
+
+        Person savedPerson = personRepository.save(person);
+        return toDto(savedPerson, registration.getDetectedAngle().name());
+    }
+
+    public List<PersonDto> listPersons() {
+        return personRepository.findAll().stream()
+                .sorted(Comparator.comparing(Person::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .map(p -> toDto(p, null))
+                .toList();
+    }
+
+    public FaceIdentifyResult identify(MultipartFile image) throws IOException {
+        if (image == null || image.isEmpty()) {
+            throw new IllegalArgumentException("Image is required");
+        }
+        if (!faceAiEngine.isReady()) {
+            throw new IllegalStateException("AI face engine not ready. Restart the backend.");
+        }
+
+        List<Person> persons = personRepository.findAll();
+        if (persons.isEmpty()) {
+            throw new IllegalArgumentException("No registered faces. Add people first.");
+        }
+
+        Path tempQuery = Files.createTempFile("query_", getExtension(image.getOriginalFilename()));
+        Files.write(tempQuery, image.getBytes());
+
+        try {
+            List<Mat> queryFeatures = faceAiEngine.extractAllFeatures(tempQuery, true);
+            if (queryFeatures.isEmpty()) {
+                return FaceIdentifyResult.builder()
+                        .matched(false)
+                        .confidence(0)
+                        .facesScanned(0)
+                        .matchGap(0)
+                        .build();
+            }
+
+            for (Person person : persons) {
+                ensureEmbeddings(person);
+            }
+
+            FaceMatchHelper.MatchOutcome bestOutcome = null;
+            for (Mat queryFeature : queryFeatures) {
+                FaceMatchHelper.MatchOutcome outcome = FaceMatchHelper.matchAgainstAll(
+                        queryFeature,
+                        persons,
+                        faceAiEngine,
+                        faceAiEngine.getMatchThreshold(),
+                        faceAiEngine.getMinMatchGap());
+                if (bestOutcome == null || outcome.getBestScore() > bestOutcome.getBestScore()) {
+                    bestOutcome = outcome;
+                }
+                queryFeature.release();
+            }
+
+            if (bestOutcome == null) {
+                return FaceIdentifyResult.builder()
+                        .matched(false)
+                        .confidence(0)
+                        .facesScanned(queryFeatures.size())
+                        .matchGap(0)
+                        .build();
+            }
+
+            double gap = bestOutcome.getSecondBestScore() < 0
+                    ? 100
+                    : FaceMatchHelper.toPercent(bestOutcome.getBestScore() - bestOutcome.getSecondBestScore());
+
+            return FaceIdentifyResult.builder()
+                    .matched(bestOutcome.isMatched())
+                    .personId(bestOutcome.isMatched() ? bestOutcome.getBestPerson().getId() : null)
+                    .personName(bestOutcome.isMatched() ? bestOutcome.getBestPerson().getName() : null)
+                    .confidence(FaceMatchHelper.toPercent(bestOutcome.getBestScore()))
+                    .facesScanned(queryFeatures.size())
+                    .matchGap(gap)
+                    .candidates(bestOutcome.getCandidates())
+                    .build();
+        } finally {
+            Files.deleteIfExists(tempQuery);
+        }
+    }
+
+    public void deletePerson(String id) throws IOException {
+        Person person = personRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Person not found"));
+        if (person.getImagePaths() != null) {
+            for (String path : person.getImagePaths()) {
+                Files.deleteIfExists(Path.of(path));
+            }
+        }
+        List<PersonPhoto> photos = personPhotoRepository.findByPersonIdOrderByMatchedAtDesc(id);
+        for (PersonPhoto photo : photos) {
+            Files.deleteIfExists(Path.of(photo.getFilePath()));
+        }
+        personPhotoRepository.deleteByPersonId(id);
+        Files.deleteIfExists(facesPath.resolve("gallery").resolve(id));
+        personRepository.delete(person);
+    }
+
+    public List<PersonPhotoDto> listPersonPhotos(String personId) {
+        personRepository.findById(personId)
+                .orElseThrow(() -> new IllegalArgumentException("Person not found"));
+        return personPhotoRepository.findByPersonIdOrderByMatchedAtDesc(personId).stream()
+                .map(this::toPhotoDto)
+                .toList();
+    }
+
+    public LibraryScanResultDto scanLibraryPhoto(String personId, MultipartFile image, String devicePhotoId)
+            throws IOException {
+        Person person = personRepository.findById(personId)
+                .orElseThrow(() -> new IllegalArgumentException("Person not found"));
+        if (image == null || image.isEmpty()) {
+            throw new IllegalArgumentException("Image is required");
+        }
+        if (!faceAiEngine.isReady()) {
+            throw new IllegalStateException("AI face engine not ready");
+        }
+
+        if (devicePhotoId != null && !devicePhotoId.isBlank()) {
+            var existing = personPhotoRepository.findByPersonIdAndDevicePhotoId(personId, devicePhotoId);
+            if (existing.isPresent()) {
+                return LibraryScanResultDto.builder()
+                        .devicePhotoId(devicePhotoId)
+                        .matched(true)
+                        .saved(false)
+                        .confidence(existing.get().getConfidence())
+                        .photoId(existing.get().getId())
+                        .build();
+            }
+        }
+
+        Path temp = Files.createTempFile("scan_", getExtension(image.getOriginalFilename()));
+        Files.write(temp, image.getBytes());
+
+        try {
+            List<Mat> queryFeatures = faceAiEngine.extractAllFeatures(temp, true);
+            if (queryFeatures.isEmpty()) {
+                return LibraryScanResultDto.builder()
+                        .devicePhotoId(devicePhotoId)
+                        .matched(false)
+                        .saved(false)
+                        .confidence(0)
+                        .build();
+            }
+
+            ensureEmbeddings(person);
+            float personBest = -1f;
+            for (Mat queryFeature : queryFeatures) {
+                personBest = Math.max(personBest, FaceMatchHelper.scorePerson(queryFeature, person, faceAiEngine));
+                queryFeature.release();
+            }
+
+            float threshold = faceAiEngine.getMatchThreshold();
+            boolean matched = personBest >= threshold;
+
+            if (!matched) {
+                return LibraryScanResultDto.builder()
+                        .devicePhotoId(devicePhotoId)
+                        .matched(false)
+                        .saved(false)
+                        .confidence(Math.round(personBest * 1000.0) / 10.0)
+                        .build();
+            }
+
+            Path galleryDir = facesPath.resolve("gallery").resolve(personId);
+            Files.createDirectories(galleryDir);
+            String fileName = UUID.randomUUID() + getExtension(image.getOriginalFilename());
+            Path saved = galleryDir.resolve(fileName);
+            Files.copy(temp, saved, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+
+            PersonPhoto record = personPhotoRepository.save(PersonPhoto.builder()
+                    .personId(personId)
+                    .fileName("gallery/" + personId + "/" + fileName)
+                    .filePath(saved.toString())
+                    .confidence(Math.round(personBest * 1000.0) / 10.0)
+                    .devicePhotoId(devicePhotoId)
+                    .matchedAt(Instant.now())
+                    .build());
+
+            return LibraryScanResultDto.builder()
+                    .devicePhotoId(devicePhotoId)
+                    .matched(true)
+                    .saved(true)
+                    .confidence(record.getConfidence())
+                    .photoId(record.getId())
+                    .build();
+        } finally {
+            Files.deleteIfExists(temp);
+        }
+    }
+
+    public void deletePersonPhoto(String photoId) throws IOException {
+        PersonPhoto photo = personPhotoRepository.findById(photoId)
+                .orElseThrow(() -> new IllegalArgumentException("Photo not found"));
+        Files.deleteIfExists(Path.of(photo.getFilePath()));
+        personPhotoRepository.delete(photo);
+    }
+
+    private boolean canReadImage(Path path) {
+        Mat image = faceAiEngine.readImage(path);
+        boolean ok = !image.empty();
+        image.release();
+        return ok;
+    }
+
+    private PersonPhotoDto toPhotoDto(PersonPhoto photo) {
+        String imageUrl = "/api/faces/image?path=" + java.net.URLEncoder.encode(
+                photo.getFileName(), java.nio.charset.StandardCharsets.UTF_8);
+        return PersonPhotoDto.builder()
+                .id(photo.getId())
+                .personId(photo.getPersonId())
+                .imageUrl(imageUrl)
+                .confidence(photo.getConfidence())
+                .matchedAt(photo.getMatchedAt() != null ? photo.getMatchedAt().toString() : null)
+                .build();
+    }
+
+    /** Rebuild AI embeddings from saved photos (for older registrations). */
+    private void ensureEmbeddings(Person person) {
+        if (person.getImagePaths() == null || person.getImagePaths().isEmpty()) {
+            return;
+        }
+        if (person.getFaceEmbeddings() != null
+                && person.getFaceEmbeddings().size() == person.getImagePaths().size()
+                && person.getFaceViewAngles() != null
+                && person.getFaceViewAngles().size() == person.getImagePaths().size()) {
+            return;
+        }
+        List<List<Float>> rebuilt = new ArrayList<>();
+        List<String> rebuiltAngles = new ArrayList<>();
+        for (String imagePath : person.getImagePaths()) {
+            Path path = Path.of(imagePath);
+            if (!Files.exists(path)) {
+                continue;
+            }
+            RegistrationFeature reg = faceAiEngine.extractRegistrationFeature(path, FaceViewAngle.UNKNOWN);
+            if (reg != null && reg.getFeature() != null && !reg.getFeature().empty()) {
+                rebuilt.add(faceAiEngine.featureToList(reg.getFeature()));
+                rebuiltAngles.add(reg.getDetectedAngle().name());
+                reg.getFeature().release();
+            }
+        }
+        if (!rebuilt.isEmpty()) {
+            person.setFaceEmbeddings(rebuilt);
+            person.setFaceViewAngles(rebuiltAngles);
+            personRepository.save(person);
+        }
+    }
+
+    private PersonDto toDto(Person person, String lastRegisteredView) {
+        String imageUrl = null;
+        if (person.getImagePaths() != null && !person.getImagePaths().isEmpty()) {
+            Path p = Path.of(person.getImagePaths().get(person.getImagePaths().size() - 1));
+            imageUrl = "/api/faces/image?path=" + java.net.URLEncoder.encode(
+                    p.getFileName().toString(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        List<String> views = person.getFaceViewAngles() != null
+                ? person.getFaceViewAngles()
+                : List.of();
+        return PersonDto.builder()
+                .id(person.getId())
+                .name(person.getName())
+                .notes(person.getNotes())
+                .imageUrl(imageUrl)
+                .createdAt(person.getCreatedAt() != null ? person.getCreatedAt().toString() : null)
+                .photoCount(personPhotoRepository.countByPersonId(person.getId()))
+                .lastRegisteredView(lastRegisteredView)
+                .registeredViews(new ArrayList<>(views))
+                .build();
+    }
+
+    public byte[] getFaceImage(String fileName) throws IOException {
+        Path file = facesPath.resolve(fileName).normalize();
+        if (!file.startsWith(facesPath) || !Files.exists(file)) {
+            throw new IllegalArgumentException("Image not found");
+        }
+        return Files.readAllBytes(file);
+    }
+
+    private String sanitize(String input) {
+        return input.replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
+    private String getExtension(String name) {
+        if (name == null || !name.contains(".")) {
+            return ".jpg";
+        }
+        return name.substring(name.lastIndexOf('.'));
+    }
+}

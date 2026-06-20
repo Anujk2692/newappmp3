@@ -1,0 +1,11 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: mediaface-mongo
+    ports:
+      - '27019:27017'
+    volumes:
+      - mediaface_data:/data/db
+
+volumes:
+  mediaface_data:

@@ -1,0 +1,16 @@
+.DS_Store
+*.log
+.env
+.env.*
+
+# Backend
+backend/target/
+backend/storage/
+
+# Mobile
+mobile/node_modules/
+mobile/ios/Pods/
+mobile/ios/build/
+mobile/android/build/
+mobile/android/.gradle/
+mobile/android/app/build/

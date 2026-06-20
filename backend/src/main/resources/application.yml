@@ -1,0 +1,29 @@
+server:
+  port: 8080
+
+spring:
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27019/mediaface}
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+app:
+  storage:
+    downloads-dir: ./storage/downloads
+    faces-dir: ./storage/faces
+  face:
+    models-dir: ./storage/models
+    match-threshold: 0.34
+    min-match-gap: 0.025
+    det-score-threshold: 0.55
+    det-score-sensitive: 0.32
+    min-face-size-register: 64
+    min-face-size-identify: 36
+    min-face-size-side: 48
+  media:
+    yt-dlp-path: yt-dlp
+  cors:
+    allowed-origins: "*"
