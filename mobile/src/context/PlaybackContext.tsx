@@ -10,6 +10,7 @@ import Video, {OnLoadData, OnProgressData, VideoRef} from 'react-native-video';
 import {StyleSheet, View} from 'react-native';
 import {PlayableMedia} from '../api/client';
 import {isPlayerScreenOpen, openPlayerScreen} from '../navigation/navigationRef';
+import {buildMediaSource} from '../utils/mediaPlayback';
 
 export interface QueueTrack {
   id: string;
@@ -361,10 +362,7 @@ export function PlaybackProvider({children}: {children: React.ReactNode}) {
   );
 
   const videoSource = streamUrl && engineActive
-    ? {
-        uri: streamUrl,
-        type: (media?.type === 'VIDEO' ? 'mp4' : 'm4a') as 'mp4' | 'm4a',
-      }
+    ? buildMediaSource(streamUrl, media?.type === 'VIDEO' ? 'VIDEO' : 'AUDIO')
     : null;
 
   return (
@@ -392,6 +390,11 @@ export function PlaybackProvider({children}: {children: React.ReactNode}) {
             onProgress={onProgress}
             onBuffer={({isBuffering}) => setBuffering(isBuffering)}
             onEnd={onTrackEnd}
+            onError={e => {
+              setBuffering(false);
+              setPaused(true);
+              console.warn('Playback engine error', e);
+            }}
           />
         </View>
       ) : null}

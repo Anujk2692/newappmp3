@@ -28,7 +28,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import com.mediaapp.util.RangeFileResponse;
@@ -301,6 +304,43 @@ public class MediaService {
                         .quality(type == MediaType.AUDIO ? "Cached Audio" : videoQualityLabel())
                         .cached(true)
                         .build();
+            }
+
+            try {
+                String directUrl = resolveDirectUrl(videoId, type);
+                warmCacheAsync(videoId, type);
+                return PlayUrlDto.builder()
+                        .videoId(videoId)
+                        .type(type)
+                        .streamUrl(directUrl)
+                        .contentType(getStreamContentType(type))
+                        .quality(type == MediaType.AUDIO ? "Streaming Audio" : "Streaming Video")
+                        .cached(false)
+                        .build();
+            } catch (Exception directEx) {
+                log.warn("Direct CDN URL unavailable for {} {}: {}", videoId, type, directEx.getMessage());
+                try {
+                    var executor = Executors.newSingleThreadExecutor();
+                    Future<Path> cacheFuture = executor.submit(() -> ensureCachedPlayback(videoId, type));
+                    try {
+                        Path ready = cacheFuture.get(25, TimeUnit.SECONDS);
+                        executor.shutdownNow();
+                        return PlayUrlDto.builder()
+                                .videoId(videoId)
+                                .type(type)
+                                .streamUrl("/files/cache/" + ready.getFileName())
+                                .contentType(type == MediaType.AUDIO ? "audio/mp4" : "video/mp4")
+                                .quality(type == MediaType.AUDIO ? "Cached Audio" : videoQualityLabel())
+                                .cached(true)
+                                .build();
+                    } catch (TimeoutException te) {
+                        cacheFuture.cancel(true);
+                        executor.shutdownNow();
+                        log.info("Cache not ready in 25s for {} {}, returning stream path", videoId, type);
+                    }
+                } catch (Exception cacheEx) {
+                    log.warn("Quick cache failed for {} {}: {}", videoId, type, cacheEx.getMessage());
+                }
             }
 
             warmCacheAsync(videoId, type);

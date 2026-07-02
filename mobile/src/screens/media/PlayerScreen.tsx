@@ -29,6 +29,7 @@ import {MediaStackParamList} from '../../navigation/types';
 import {api, PlayableMedia} from '../../api/client';
 import {usePlayback} from '../../context/PlaybackContext';
 import {useLayoutMetrics} from '../../utils/layout';
+import {buildMediaSource} from '../../utils/mediaPlayback';
 
 type Props = NativeStackScreenProps<MediaStackParamList, 'Player'>;
 
@@ -484,10 +485,7 @@ export function PlayerScreen({route, navigation}: Props) {
         ? 'Video'
         : 'Audio';
 
-  const videoSource = {
-    uri: streamUrl,
-    type: (isVideo ? 'mp4' : 'm4a') as 'mp4' | 'm4a',
-  };
+  const videoSource = buildMediaSource(streamUrl, isVideo ? 'VIDEO' : 'AUDIO');
 
   const videoWidth = layout.contentW;
   const videoHeight = layout.videoStageHeight;
@@ -567,7 +565,11 @@ export function PlayerScreen({route, navigation}: Props) {
                 onLoad={onLoad}
                 onProgress={onProgress}
                 onBuffer={({isBuffering}) => setBuffering(isBuffering)}
-                onError={() => { setError(true); setBuffering(false); }}
+                onError={e => {
+                  setError(true);
+                  setBuffering(false);
+                  console.warn('Player stream error', e);
+                }}
                 onEnd={handleTrackEnd}
               />
               {buffering && (
@@ -678,7 +680,11 @@ export function PlayerScreen({route, navigation}: Props) {
                 onLoad={onLoad}
                 onProgress={onProgress}
                 onBuffer={({isBuffering}) => setBuffering(isBuffering)}
-                onError={() => { setError(true); setBuffering(false); }}
+                onError={e => {
+                  setError(true);
+                  setBuffering(false);
+                  console.warn('Player stream error', e);
+                }}
                 onEnd={handleTrackEnd}
               />
               <PlayerControls
@@ -791,7 +797,11 @@ export function PlayerScreen({route, navigation}: Props) {
                 }}
                 onProgress={onProgress}
                 onBuffer={({isBuffering}) => setBuffering(isBuffering)}
-                onError={() => { setError(true); setBuffering(false); }}
+                onError={e => {
+                  setError(true);
+                  setBuffering(false);
+                  console.warn('Player stream error', e);
+                }}
                 onEnd={handleTrackEnd}
               />
               {buffering && (

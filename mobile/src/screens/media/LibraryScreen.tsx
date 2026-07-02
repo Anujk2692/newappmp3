@@ -17,6 +17,7 @@ import {MediaListSkeleton} from '../../components/Skeleton';
 import {usePlayback} from '../../context/PlaybackContext';
 import {api, MediaItem} from '../../api/client';
 import {buildLibraryQueue} from '../../utils/playbackQueue';
+import {openPlayerScreen} from '../../navigation/navigationRef';
 import {COLORS, RADIUS, SPACING} from '../../config';
 import {connectionErrorHint} from '../../utils/serverConnection';
 import {useLayoutMetrics} from '../../utils/layout';
@@ -148,6 +149,8 @@ export function LibraryScreen({type}: Props) {
             onPlay={() => {
               const queue = buildLibraryQueue(items);
               playQueue(queue, index);
+              const track = queue[index];
+              openPlayerScreen(track.media, track.streamUrl);
             }}
             onDelete={() => handleDelete(item)}
           />

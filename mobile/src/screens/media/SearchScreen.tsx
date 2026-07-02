@@ -16,9 +16,10 @@ import {MediaCard, formatDuration} from '../../components/MediaCard';
 import {EmptyState} from '../../components/EmptyState';
 import {MediaListSkeleton} from '../../components/Skeleton';
 import {usePlayback} from '../../context/PlaybackContext';
-import {api, MediaSearchResult, PlayableMedia} from '../../api/client';
+import {api, MediaSearchResult} from '../../api/client';
 import {COLORS, RADIUS, SPACING} from '../../config';
 import {connectionErrorHint} from '../../utils/serverConnection';
+import {prepareAndStartPlayback, showPlaybackError} from '../../utils/playSearchItem';
 import {consumePendingSearchQuery} from '../../utils/searchIntent';
 import {useLayoutMetrics} from '../../utils/layout';
 
@@ -81,32 +82,9 @@ export function SearchScreen() {
   const handlePlay = async (item: MediaSearchResult, type: 'AUDIO' | 'VIDEO') => {
     setPlaying(prev => ({...prev, [item.videoId]: type}));
     try {
-      const prep = await api.preparePlayUrl(item.videoId, type);
-      const streamPath =
-        prep.success && prep.data?.streamUrl
-          ? prep.data.streamUrl
-          : `/api/media/stream/${item.videoId}?type=${type}`;
-      const streamUrl = api.getStreamUrl(streamPath);
-      const media: PlayableMedia = {
-        title: item.title,
-        type,
-        streamUrl,
-        thumbnailUrl: item.thumbnailUrl,
-        quality:
-          prep.success && prep.data?.quality
-            ? prep.data.quality
-            : type === 'AUDIO'
-              ? item.audioFormat
-              : item.videoFormat,
-        sourceUrl: item.sourceUrl,
-        videoId: item.videoId,
-      };
-      startPlayback(media, streamUrl);
+      await prepareAndStartPlayback(item, type, startPlayback);
     } catch (e) {
-      Alert.alert(
-        'Playback failed',
-        e instanceof Error ? e.message : 'Stream could not start. Try downloading instead.',
-      );
+      showPlaybackError(e);
     } finally {
       setPlaying(prev => {
         const next = {...prev};

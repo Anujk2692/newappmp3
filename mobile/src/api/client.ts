@@ -1,5 +1,6 @@
 import {getApiBaseUrl, getApiKey, getServerCandidates, isProductionMode, setApiBaseUrl} from '../config';
 import {normalizeFaceImage} from '../utils/imageUpload';
+import {resolveStreamUrl} from '../utils/mediaPlayback';
 import {
   connectionErrorHint,
   isReachableHealthStatus,
@@ -268,7 +269,7 @@ export const api = {
     request<PlayUrlResponse>(
       `/api/media/play/${videoId}?type=${type}`,
       {},
-      isProductionMode() ? 120000 : 30000,
+      isProductionMode() ? 180000 : 60000,
     ),
 
   getAudioLibrary: () =>
@@ -420,7 +421,7 @@ export const api = {
   deleteCapture: (id: string) =>
     request<void>(`/api/captures/${id}`, {method: 'DELETE'}),
 
-  getStreamUrl: (streamUrl: string) => `${getApiBaseUrl()}${streamUrl}`,
+  getStreamUrl: (streamUrl: string) => resolveStreamUrl(streamUrl),
 
   getPlayStreamUrl: (videoId: string, type: 'AUDIO' | 'VIDEO') =>
     `${getApiBaseUrl()}/api/media/stream/${videoId}?type=${type}`,
