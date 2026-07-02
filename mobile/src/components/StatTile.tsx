@@ -15,7 +15,7 @@ export function StatTile({icon, label, value, accent}: StatTileProps) {
   const layout = useLayoutMetrics(true);
 
   return (
-    <View style={[styles.tile, {borderColor: `${accent}35`}]}>
+    <View style={[styles.tile, {borderColor: `${accent}35`, paddingHorizontal: layout.isSmallPhone ? 1 : 2}]}>
       <View
         style={[
           styles.iconWrap,
@@ -29,7 +29,11 @@ export function StatTile({icon, label, value, accent}: StatTileProps) {
         <Icon name={icon} size={layout.isCompact ? 14 : 16} color={accent} />
       </View>
       <Text style={[styles.value, {color: accent, fontSize: layout.font.lg}]}>{value}</Text>
-      <Text style={[styles.label, {fontSize: layout.font.xs}]} numberOfLines={1}>
+      <Text
+        style={[styles.label, {fontSize: layout.isSmallPhone ? 9 : layout.font.xs}]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}>
         {label}
       </Text>
     </View>
@@ -41,7 +45,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: SPACING.sm,
-    paddingHorizontal: 2,
     borderRadius: RADIUS.md,
     borderWidth: 1,
     backgroundColor: 'rgba(26,26,36,0.65)',
@@ -59,7 +62,6 @@ const styles = StyleSheet.create({
   label: {
     color: COLORS.textMuted,
     fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    textAlign: 'center',
   },
 });

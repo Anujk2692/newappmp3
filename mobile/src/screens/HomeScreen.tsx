@@ -14,7 +14,7 @@ import {AppHeader} from '../components/AppHeader';
 import {FeatureCard} from '../components/FeatureCard';
 import {SectionHeader} from '../components/SectionHeader';
 import {StatTile} from '../components/StatTile';
-import {api} from '../api/client';
+import {api, discoverServer} from '../api/client';
 import {COLORS, GRADIENTS, RADIUS, SPACING} from '../config';
 import {useTheme} from '../context/ThemeContext';
 import {
@@ -47,6 +47,7 @@ export function HomeScreen() {
     serverOk: false,
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   const load = useCallback(async () => {
     const [health, audio, video, people, captures] = await Promise.allSettled([
@@ -74,8 +75,16 @@ export function HomeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    await discoverServer();
     await load();
     setRefreshing(false);
+  };
+
+  const retryConnection = async () => {
+    setConnecting(true);
+    await discoverServer();
+    await load();
+    setConnecting(false);
   };
 
   return (
@@ -99,18 +108,26 @@ export function HomeScreen() {
         <LinearGradient
           colors={[`${colors.primary}40`, `${colors.accent}18`, 'transparent']}
           style={[styles.hero, {marginHorizontal: layout.hPad, padding: layout.isCompact ? SPACING.md : SPACING.lg}]}>
-          <View style={styles.heroTop}>
-            <View>
+          <View style={[styles.heroTop, layout.isCompact && styles.heroTopCompact]}>
+            <View style={styles.heroCopy}>
               <Text style={[styles.greeting, {fontSize: layout.font.sm}]}>Welcome back</Text>
-              <Text style={[styles.heroTitle, {fontSize: layout.font.xl, lineHeight: layout.font.lineLg, maxWidth: layout.contentW * 0.72}]}>
+              <Text
+                style={[
+                  styles.heroTitle,
+                  {fontSize: layout.font.lg, lineHeight: layout.font.lineLg},
+                ]}
+                numberOfLines={3}>
                 Search · Play · Capture · Recognize
               </Text>
             </View>
-            <View
+            <TouchableOpacity
               style={[
                 styles.serverPill,
                 {backgroundColor: stats.serverOk ? `${colors.success}22` : `${colors.warning}22`},
-              ]}>
+              ]}
+              onPress={stats.serverOk ? undefined : retryConnection}
+              disabled={connecting || stats.serverOk}
+              activeOpacity={0.85}>
               <View
                 style={[
                   styles.serverDot,
@@ -120,12 +137,17 @@ export function HomeScreen() {
               <Text
                 style={[
                   styles.serverText,
-                  {color: stats.serverOk ? colors.success : colors.warning},
+                  {color: stats.serverOk ? colors.success : colors.warning, fontSize: layout.font.xs},
                 ]}>
-                {stats.serverOk ? 'Online' : 'Offline'}
+                {connecting ? 'Connecting…' : stats.serverOk ? 'Online' : 'Tap to connect'}
               </Text>
-            </View>
+            </TouchableOpacity>
           </View>
+          {!stats.serverOk && !connecting ? (
+            <Text style={[styles.offlineHint, {fontSize: layout.font.xs, color: colors.textMuted}]}>
+              Cloud may sleep ~2 min on first open — pull down to refresh
+            </Text>
+          ) : null}
 
           <View style={styles.statsRow}>
             <StatTile icon="musical-notes" label="Songs" value={stats.songs} accent={colors.audio} />
@@ -145,6 +167,7 @@ export function HomeScreen() {
             colors={[`${colors.primary}55`, `${colors.primary}18`]}
             accent={colors.primary}
             width={layout.featureCardWidth}
+            layout="grid"
             onPress={() => goToMediaTab('SearchTab')}
           />
           <FeatureCard
@@ -155,6 +178,7 @@ export function HomeScreen() {
             accent={colors.audio}
             badge={stats.songs + stats.videos > 0 ? String(stats.songs + stats.videos) : undefined}
             width={layout.featureCardWidth}
+            layout="grid"
             onPress={() => goToMediaTab('AudioTab')}
           />
           <FeatureCard
@@ -164,6 +188,7 @@ export function HomeScreen() {
             colors={[`${colors.camera}50`, `${colors.camera}15`]}
             accent={colors.camera}
             width={layout.featureCardWidth}
+            layout="grid"
             onPress={goToCameraTab}
           />
           <FeatureCard
@@ -174,6 +199,7 @@ export function HomeScreen() {
             accent={colors.face}
             badge={stats.people > 0 ? String(stats.people) : undefined}
             width={layout.featureCardWidth}
+            layout="grid"
             onPress={goToFacesTab}
           />
         </View>
@@ -293,8 +319,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: SPACING.sm,
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.md,
   },
+  heroTopCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  heroCopy: {flex: 1, minWidth: 0},
   greeting: {
     color: COLORS.textMuted,
     fontWeight: '700',
@@ -316,7 +347,12 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.lg,
   },
   serverDot: {width: 7, height: 7, borderRadius: 4},
-  serverText: {fontSize: 12, fontWeight: '800'},
+  serverText: {fontWeight: '800'},
+  offlineHint: {
+    marginBottom: SPACING.sm,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
   statsRow: {
     flexDirection: 'row',
     gap: SPACING.sm,
