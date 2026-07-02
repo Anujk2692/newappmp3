@@ -105,6 +105,16 @@ export interface PlayUrlResponse {
   cached: boolean;
 }
 
+export interface PrepareStatusResponse {
+  videoId: string;
+  type: 'AUDIO' | 'VIDEO';
+  status: 'PREPARING' | 'READY' | 'FAILED';
+  streamUrl?: string;
+  contentType?: string;
+  quality?: string;
+  message?: string;
+}
+
 export interface FaceStatus {
   engineReady: boolean;
   registeredCount: number;
@@ -270,6 +280,14 @@ export const api = {
       `/api/media/play/${videoId}?type=${type}`,
       {},
       isProductionMode() ? 180000 : 60000,
+    ),
+
+  /** Poll until server cache or CDN URL is ready (use for playback on cloud). */
+  prepareMedia: (videoId: string, type: 'AUDIO' | 'VIDEO') =>
+    request<PrepareStatusResponse>(
+      `/api/media/prepare/${videoId}?type=${type}`,
+      {},
+      isProductionMode() ? 120000 : 60000,
     ),
 
   getAudioLibrary: () =>

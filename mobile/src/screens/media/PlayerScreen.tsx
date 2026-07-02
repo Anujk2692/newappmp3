@@ -710,7 +710,9 @@ export function PlayerScreen({route, navigation}: Props) {
         {error && (
           <View style={styles.errorBox}>
             <Icon name="alert-circle" size={18} color={COLORS.danger} />
-            <Text style={styles.errorText}>Playback failed</Text>
+            <Text style={styles.errorText}>
+              Playback failed. Wait for Online in Home, then try again or use Download.
+            </Text>
             <TouchableOpacity style={styles.retryBtn} onPress={() => {
               setError(false); setBuffering(true); setStreamKey(k => k + 1);
             }}>

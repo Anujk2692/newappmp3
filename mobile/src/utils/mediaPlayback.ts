@@ -26,9 +26,10 @@ export function mediaStreamHeaders(streamUrl: string): Record<string, string> {
 }
 
 export function buildMediaSource(streamUrl: string, type: 'AUDIO' | 'VIDEO') {
+  // M4A audio uses MP4 container — AVPlayer on iOS prefers type mp4 for both.
   return {
     uri: streamUrl,
-    type: (type === 'VIDEO' ? 'mp4' : 'm4a') as 'mp4' | 'm4a',
+    type: 'mp4' as const,
     headers: mediaStreamHeaders(streamUrl),
   };
 }

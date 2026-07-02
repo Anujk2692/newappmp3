@@ -3,6 +3,7 @@ package com.mediaapp.controller;
 import com.mediaapp.dto.*;
 import com.mediaapp.model.MediaItem;
 import com.mediaapp.model.MediaType;
+import com.mediaapp.service.MediaCacheService;
 import com.mediaapp.service.MediaService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import java.util.stream.Collectors;
 public class MediaController {
 
     private final MediaService mediaService;
+    private final MediaCacheService mediaCacheService;
 
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<List<MediaSearchResultDto>>> search(
@@ -49,6 +51,18 @@ public class MediaController {
             @RequestParam MediaType type) {
         try {
             return ResponseEntity.ok(ApiResponse.ok(mediaService.preparePlayback(videoId, type)));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        }
+    }
+
+    /** Poll until READY — downloads/cache on server (works on Render; pipe stream does not). */
+    @GetMapping("/prepare/{videoId}")
+    public ResponseEntity<ApiResponse<PrepareStatusDto>> prepare(
+            @PathVariable String videoId,
+            @RequestParam MediaType type) {
+        try {
+            return ResponseEntity.ok(ApiResponse.ok(mediaCacheService.prepare(videoId, type)));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
         }

@@ -28,10 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import com.mediaapp.util.RangeFileResponse;
@@ -188,6 +185,23 @@ public class MediaService {
         return downloadsPath.resolve("cache").resolve(videoId + "_" + type.name().toLowerCase() + ext);
     }
 
+    public Path cachePathFor(String videoId, MediaType type) {
+        return cachePath(videoId, type);
+    }
+
+    public boolean isCachedVideoPlayable(Path path) {
+        return isValidMp4(path);
+    }
+
+    public String resolveDirectUrlForClient(String videoId, MediaType type)
+            throws IOException, InterruptedException {
+        return resolveDirectUrl(videoId, type);
+    }
+
+    public String videoQualityLabelPublic() {
+        return videoQualityLabel();
+    }
+
     private String resolveDirectUrl(String videoId, MediaType type)
             throws IOException, InterruptedException {
         String key = videoId + ":" + type.name();
@@ -319,38 +333,14 @@ public class MediaService {
                         .build();
             } catch (Exception directEx) {
                 log.warn("Direct CDN URL unavailable for {} {}: {}", videoId, type, directEx.getMessage());
-                try {
-                    var executor = Executors.newSingleThreadExecutor();
-                    Future<Path> cacheFuture = executor.submit(() -> ensureCachedPlayback(videoId, type));
-                    try {
-                        Path ready = cacheFuture.get(25, TimeUnit.SECONDS);
-                        executor.shutdownNow();
-                        return PlayUrlDto.builder()
-                                .videoId(videoId)
-                                .type(type)
-                                .streamUrl("/files/cache/" + ready.getFileName())
-                                .contentType(type == MediaType.AUDIO ? "audio/mp4" : "video/mp4")
-                                .quality(type == MediaType.AUDIO ? "Cached Audio" : videoQualityLabel())
-                                .cached(true)
-                                .build();
-                    } catch (TimeoutException te) {
-                        cacheFuture.cancel(true);
-                        executor.shutdownNow();
-                        log.info("Cache not ready in 25s for {} {}, returning stream path", videoId, type);
-                    }
-                } catch (Exception cacheEx) {
-                    log.warn("Quick cache failed for {} {}: {}", videoId, type, cacheEx.getMessage());
-                }
             }
-
-            warmCacheAsync(videoId, type);
 
             return PlayUrlDto.builder()
                     .videoId(videoId)
                     .type(type)
-                    .streamUrl("/api/media/stream/" + videoId + "?type=" + type)
-                    .contentType(type == MediaType.AUDIO ? "audio/mp4" : "video/mp4")
-                    .quality(type == MediaType.AUDIO ? "Streaming Audio" : "Streaming Video")
+                    .streamUrl("/api/media/prepare/" + videoId + "?type=" + type)
+                    .contentType(getStreamContentType(type))
+                    .quality(type == MediaType.AUDIO ? "Preparing audio…" : "Preparing video…")
                     .cached(false)
                     .build();
         } catch (Exception e) {
@@ -407,6 +397,11 @@ public class MediaService {
         if (process.exitValue() != 0) {
             throw new IllegalStateException("Stream failed. Check yt-dlp and network.");
         }
+    }
+
+    public Path ensureCachedPlaybackPublic(String videoId, MediaType type)
+            throws IOException, InterruptedException {
+        return ensureCachedPlayback(videoId, type);
     }
 
     private Path ensureCachedPlayback(String videoId, MediaType type)

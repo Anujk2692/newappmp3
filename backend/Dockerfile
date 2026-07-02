@@ -8,6 +8,7 @@ RUN mvn -q package -DskipTests
 FROM eclipse-temurin:17-jre-jammy
 RUN apt-get update \
     && apt-get install -y --no-install-recommends yt-dlp ffmpeg python3 ca-certificates curl \
+    && yt-dlp --update-to stable \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
