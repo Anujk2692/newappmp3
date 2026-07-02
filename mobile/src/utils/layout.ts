@@ -140,7 +140,7 @@ export function useLayoutMetrics(tabBarVisible = true) {
       gridItemWidth: gridItemWidth(contentW, cols, gap),
       halfGridWidth: halfGridItemWidth(contentW, gap),
       featureCardWidth: featureCardWidth(contentW, gap, isSmallPhone),
-      contentBottomPad: tabBarVisible ? floatInset + rs(8, width) : insets.bottom + rs(16, width),
+      contentBottomPad: tabBarVisible ? floatInset + rs(24, width) : insets.bottom + rs(24, width),
       contentBottomPadWithPlayer: tabBarVisible
         ? floatInset + rs(72, width)
         : insets.bottom + rs(80, width),

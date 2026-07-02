@@ -11,7 +11,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import {useFocusEffect} from '@react-navigation/native';
 import {AppHeader} from '../components/AppHeader';
-import {FeatureCard} from '../components/FeatureCard';
+import {QuickActionCard} from '../components/QuickActionCard';
 import {SectionHeader} from '../components/SectionHeader';
 import {StatTile} from '../components/StatTile';
 import {api, discoverServer} from '../api/client';
@@ -99,7 +99,7 @@ export function HomeScreen() {
       />
 
       <ScrollView
-        contentContainerStyle={[styles.content, {paddingBottom: layout.contentBottomPad}]}
+        contentContainerStyle={[styles.content, {paddingBottom: layout.contentBottomPad + SPACING.lg}]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
@@ -108,21 +108,21 @@ export function HomeScreen() {
         <LinearGradient
           colors={[`${colors.primary}40`, `${colors.accent}18`, 'transparent']}
           style={[styles.hero, {marginHorizontal: layout.hPad, padding: layout.isCompact ? SPACING.md : SPACING.lg}]}>
-          <View style={[styles.heroTop, layout.isCompact && styles.heroTopCompact]}>
+          <View style={styles.heroTop}>
             <View style={styles.heroCopy}>
               <Text style={[styles.greeting, {fontSize: layout.font.sm}]}>Welcome back</Text>
               <Text
                 style={[
                   styles.heroTitle,
-                  {fontSize: layout.font.lg, lineHeight: layout.font.lineLg},
-                ]}
-                numberOfLines={3}>
+                  {fontSize: layout.font.md, lineHeight: layout.font.lineMd},
+                ]}>
                 Search · Play · Capture · Recognize
               </Text>
             </View>
             <TouchableOpacity
               style={[
                 styles.serverPill,
+                styles.serverPillRow,
                 {backgroundColor: stats.serverOk ? `${colors.success}22` : `${colors.warning}22`},
               ]}
               onPress={stats.serverOk ? undefined : retryConnection}
@@ -150,56 +150,48 @@ export function HomeScreen() {
           ) : null}
 
           <View style={styles.statsRow}>
-            <StatTile icon="musical-notes" label="Songs" value={stats.songs} accent={colors.audio} />
-            <StatTile icon="videocam" label="Videos" value={stats.videos} accent={colors.video} />
-            <StatTile icon="people" label="People" value={stats.people} accent={colors.face} />
-            <StatTile icon="camera" label="Shots" value={stats.captures} accent={colors.camera} />
+            <StatTile icon="musical-notes" label="Music" value={stats.songs} accent={colors.audio} />
+            <StatTile icon="videocam" label="Video" value={stats.videos} accent={colors.video} />
+            <StatTile icon="people" label="Faces" value={stats.people} accent={colors.face} />
+            <StatTile icon="camera" label="Photos" value={stats.captures} accent={colors.camera} />
           </View>
         </LinearGradient>
 
         <SectionHeader title="Quick start" subtitle="One tap to any feature" />
 
-        <View style={[styles.grid, {paddingHorizontal: layout.hPad, gap: layout.gap}]}>
-          <FeatureCard
+        <View style={[styles.quickList, {paddingHorizontal: layout.hPad}]}>
+          <QuickActionCard
             icon="search"
             title="Search"
             subtitle="Stream or download any song or video"
             colors={[`${colors.primary}55`, `${colors.primary}18`]}
             accent={colors.primary}
-            width={layout.featureCardWidth}
-            layout="grid"
             onPress={() => goToMediaTab('SearchTab')}
           />
-          <FeatureCard
+          <QuickActionCard
             icon="library"
             title="Library"
-            subtitle="Your saved music & HD videos"
+            subtitle="Your saved music and HD videos"
             colors={[`${colors.audio}45`, `${colors.video}15`]}
             accent={colors.audio}
             badge={stats.songs + stats.videos > 0 ? String(stats.songs + stats.videos) : undefined}
-            width={layout.featureCardWidth}
-            layout="grid"
             onPress={() => goToMediaTab('AudioTab')}
           />
-          <FeatureCard
+          <QuickActionCard
             icon="camera"
             title="Camera"
-            subtitle="Photo & video with GPS geotag"
+            subtitle="Photo and video with GPS geotag"
             colors={[`${colors.camera}50`, `${colors.camera}15`]}
             accent={colors.camera}
-            width={layout.featureCardWidth}
-            layout="grid"
             onPress={goToCameraTab}
           />
-          <FeatureCard
+          <QuickActionCard
             icon="scan-circle"
             title="Face AI"
-            subtitle="Identify people in photos & videos"
+            subtitle="Identify people in photos and videos"
             colors={[`${colors.face}45`, `${colors.face}12`]}
             accent={colors.face}
             badge={stats.people > 0 ? String(stats.people) : undefined}
-            width={layout.featureCardWidth}
-            layout="grid"
             onPress={goToFacesTab}
           />
         </View>
@@ -315,17 +307,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.08)',
   },
   heroTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     gap: SPACING.sm,
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
   },
-  heroTopCompact: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
-  },
-  heroCopy: {flex: 1, minWidth: 0},
+  heroCopy: {minWidth: 0},
   greeting: {
     color: COLORS.textMuted,
     fontWeight: '700',
@@ -345,7 +330,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: RADIUS.lg,
+    alignSelf: 'flex-start',
   },
+  serverPillRow: {},
   serverDot: {width: 7, height: 7, borderRadius: 4},
   serverText: {fontWeight: '800'},
   offlineHint: {
@@ -355,7 +342,11 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    gap: SPACING.sm,
+    gap: SPACING.xs,
+  },
+  quickList: {
+    gap: SPACING.xs,
+    marginBottom: SPACING.xs,
   },
   grid: {
     flexDirection: 'row',

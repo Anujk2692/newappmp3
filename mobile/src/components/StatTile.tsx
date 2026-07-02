@@ -15,25 +15,21 @@ export function StatTile({icon, label, value, accent}: StatTileProps) {
   const layout = useLayoutMetrics(true);
 
   return (
-    <View style={[styles.tile, {borderColor: `${accent}35`, paddingHorizontal: layout.isSmallPhone ? 1 : 2}]}>
+    <View style={[styles.tile, {borderColor: `${accent}35`}]}>
       <View
         style={[
           styles.iconWrap,
           {
-            width: layout.isCompact ? 24 : 28,
-            height: layout.isCompact ? 24 : 28,
-            borderRadius: layout.isCompact ? 12 : 14,
+            width: layout.isCompact ? 22 : 26,
+            height: layout.isCompact ? 22 : 26,
+            borderRadius: layout.isCompact ? 11 : 13,
             backgroundColor: `${accent}20`,
           },
         ]}>
-        <Icon name={icon} size={layout.isCompact ? 14 : 16} color={accent} />
+        <Icon name={icon} size={layout.isCompact ? 12 : 14} color={accent} />
       </View>
       <Text style={[styles.value, {color: accent, fontSize: layout.font.lg}]}>{value}</Text>
-      <Text
-        style={[styles.label, {fontSize: layout.isSmallPhone ? 9 : layout.font.xs}]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.7}>
+      <Text style={[styles.label, {fontSize: 9}]} numberOfLines={1}>
         {label}
       </Text>
     </View>
@@ -44,11 +40,13 @@ const styles = StyleSheet.create({
   tile: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: SPACING.sm,
+    justifyContent: 'center',
+    paddingVertical: SPACING.xs + 2,
+    paddingHorizontal: 1,
     borderRadius: RADIUS.md,
     borderWidth: 1,
     backgroundColor: 'rgba(26,26,36,0.65)',
-    gap: 4,
+    gap: 2,
     minWidth: 0,
   },
   iconWrap: {

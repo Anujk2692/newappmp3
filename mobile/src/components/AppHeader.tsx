@@ -67,10 +67,14 @@ export function AppHeader({
           </LinearGradient>
         )}
         <View style={styles.titles}>
-          <Text style={[styles.title, {fontSize: layout.font.xl}]} numberOfLines={1}>
+          <Text
+            style={[styles.title, {fontSize: layout.isCompact ? layout.font.lg : layout.font.xl}]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}>
             {title}
           </Text>
-          {subtitle ? (
+          {subtitle && !layout.isSmallPhone ? (
             <Text
               style={[
                 styles.subtitle,
@@ -132,7 +136,7 @@ const styles = StyleSheet.create({
   titles: {flex: 1, minWidth: 0},
   title: {color: COLORS.text, fontWeight: '800', letterSpacing: -0.3},
   subtitle: {color: COLORS.textMuted, marginTop: 2, fontWeight: '600'},
-  actions: {flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0},
+  actions: {flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 0},
   accentLine: {
     height: 2,
     width: 40,
