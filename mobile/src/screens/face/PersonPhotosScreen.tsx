@@ -5,43 +5,67 @@ import {
   Dimensions,
   FlatList,
   Image,
-  PermissionsAndroid,
-  Platform,
+  Modal,
+  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import {CameraRoll} from '@react-native-camera-roll/camera-roll';
+import LinearGradient from 'react-native-linear-gradient';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
 import {api, PersonPhoto} from '../../api/client';
-import {COLORS, SPACING} from '../../config';
+import {AppHeader} from '../../components/AppHeader';
+import {COLORS, RADIUS, SPACING} from '../../config';
 import {FaceStackParamList} from '../../navigation/types';
+import {ScanMode, ScanProgress, scanPersonLibrary} from '../../utils/libraryScanner';
+import {formatVideoTimestamp} from '../../utils/videoFrames';
 
 type Props = NativeStackScreenProps<FaceStackParamList, 'PersonPhotos'>;
 
-const PAGE_SIZE = 40;
 const GRID_GAP = 2;
 const NUM_COLUMNS = 3;
 const TILE_SIZE =
   (Dimensions.get('window').width - GRID_GAP * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
+
+function photoBadge(photo: PersonPhoto) {
+  if (photo.groupPhoto) {
+    return {icon: 'people' as const, label: 'Group', color: COLORS.warning};
+  }
+  if (photo.sourceType === 'VIDEO') {
+    return {icon: 'videocam' as const, label: formatVideoTimestamp(photo.sourceTimestampMs) || 'Video', color: COLORS.video};
+  }
+  return null;
+}
 
 export function PersonPhotosScreen({route}: Props) {
   const {personId, personName} = route.params;
   const [photos, setPhotos] = useState<PersonPhoto[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [scanProgress, setScanProgress] = useState({scanned: 0, found: 0});
+  const [scanProgress, setScanProgress] = useState<ScanProgress>({
+    scanned: 0,
+    found: 0,
+    photos: 0,
+    videos: 0,
+    groupMatches: 0,
+  });
+  const [viewerPhoto, setViewerPhoto] = useState<PersonPhoto | null>(null);
   const cancelScanRef = useRef(false);
+  const knownIdsRef = useRef<Set<string>>(new Set());
 
   const loadPhotos = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.getPersonPhotos(personId);
       if (response.success) {
-        setPhotos(response.data || []);
+        const list = response.data || [];
+        setPhotos(list);
+        knownIdsRef.current = new Set(
+          list.map(p => p.devicePhotoId).filter(Boolean) as string[],
+        );
       }
     } catch {
       Alert.alert('Error', 'Could not load photos');
@@ -56,91 +80,42 @@ export function PersonPhotosScreen({route}: Props) {
     }, [loadPhotos]),
   );
 
-  const requestLibraryPermission = async () => {
-    if (Platform.OS !== 'android') {
-      return true;
-    }
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
-    );
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
-  };
-
-  const scanLibrary = async () => {
-    const allowed = await requestLibraryPermission();
-    if (!allowed) {
-      Alert.alert('Permission needed', 'Allow photo library access to find old photos.');
-      return;
-    }
-
+  const startScan = (mode: ScanMode) => {
+    const labels = {
+      photos: 'photos only',
+      videos: 'videos only',
+      all: 'photos + videos (including group shots)',
+    };
     Alert.alert(
-      'Scan photo library',
-      `Search your old photos for ${personName}? This may take a few minutes.`,
+      'Find this person',
+      `Scan your library (${labels[mode]}) for ${personName}? Works in group photos and video frames.`,
       [
         {text: 'Cancel', style: 'cancel'},
-        {text: 'Start scan', onPress: () => runScan()},
+        {text: 'Start', onPress: () => runScan(mode)},
       ],
     );
   };
 
-  const runScan = async () => {
+  const runScan = async (mode: ScanMode) => {
     cancelScanRef.current = false;
     setScanning(true);
-    setScanProgress({scanned: 0, found: 0});
-
-    let cursor: string | undefined;
-    let scanned = 0;
-    let found = 0;
+    setScanProgress({scanned: 0, found: 0, photos: 0, videos: 0, groupMatches: 0});
 
     try {
-      while (!cancelScanRef.current) {
-        const page = await CameraRoll.getPhotos({
-          first: PAGE_SIZE,
-          after: cursor,
-          assetType: 'Photos',
-          include: ['filename', 'fileSize'],
-        });
-
-        if (page.edges.length === 0) {
-          break;
-        }
-
-        for (const edge of page.edges) {
-          if (cancelScanRef.current) {
-            break;
-          }
-
-          const uri = edge.node.image.uri;
-          const devicePhotoId = edge.node.id || uri;
-
-          try {
-            const response = await api.scanLibraryPhoto(
-              personId,
-              uri,
-              devicePhotoId,
-              edge.node.id,
-            );
-            if (response.success && response.data?.matched && response.data.saved) {
-              found += 1;
-            }
-          } catch {
-            // Skip unreadable photos and continue scanning.
-          }
-
-          scanned += 1;
-          setScanProgress({scanned, found});
-        }
-
-        if (!page.page_info.has_next_page) {
-          break;
-        }
-        cursor = page.page_info.end_cursor;
-      }
+      const result = await scanPersonLibrary({
+        personId,
+        mode,
+        shouldCancel: () => cancelScanRef.current,
+        knownDeviceIds: knownIdsRef.current,
+        onProgress: setScanProgress,
+      });
 
       await loadPhotos();
       Alert.alert(
         'Scan complete',
-        `Checked ${scanned} photos · found ${found} new match${found === 1 ? '' : 'es'}`,
+        `Checked ${result.scanned} items (${result.photos} photos, ${result.videos} videos)\n` +
+          `Found ${result.found} new match${result.found === 1 ? '' : 'es'}` +
+          (result.groupMatches > 0 ? ` · ${result.groupMatches} in group shots` : ''),
       );
     } catch (error) {
       Alert.alert(
@@ -158,7 +133,7 @@ export function PersonPhotosScreen({route}: Props) {
   };
 
   const handleDeletePhoto = (photo: PersonPhoto) => {
-    Alert.alert('Remove photo', 'Remove this photo from the album?', [
+    Alert.alert('Remove photo', 'Remove this match from the album?', [
       {text: 'Cancel', style: 'cancel'},
       {
         text: 'Remove',
@@ -177,29 +152,55 @@ export function PersonPhotosScreen({route}: Props) {
     ]);
   };
 
+  const groupCount = photos.filter(p => p.groupPhoto).length;
+  const videoCount = photos.filter(p => p.sourceType === 'VIDEO').length;
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.subtitle}>
-          {photos.length} photo{photos.length === 1 ? '' : 's'} of {personName}
+      <AppHeader
+        title={personName}
+        subtitle={`${photos.length} matches${groupCount ? ` · ${groupCount} group` : ''}${videoCount ? ` · ${videoCount} video` : ''}`}
+        showBack
+        accentColor={COLORS.face}
+      />
+
+      <LinearGradient colors={['#0D2822', COLORS.background]} style={styles.hero}>
+        <Icon name="scan-circle-outline" size={28} color={COLORS.face} />
+        <Text style={styles.heroTitle}>Find in group photos & videos</Text>
+        <Text style={styles.heroSub}>
+          AI scans every face in each photo and multiple frames in videos — like Google Photos.
         </Text>
+
         {scanning ? (
-          <View style={styles.scanRow}>
-            <ActivityIndicator color={COLORS.face} size="small" />
-            <Text style={styles.scanText}>
-              Scanning {scanProgress.scanned} · found {scanProgress.found}
+          <View style={styles.scanProgressBox}>
+            <ActivityIndicator color={COLORS.face} />
+            <Text style={styles.scanProgressText}>
+              {scanProgress.scanned} checked · {scanProgress.found} found
+              {' · '}{scanProgress.photos} photos · {scanProgress.videos} videos
             </Text>
             <TouchableOpacity style={styles.stopBtn} onPress={stopScan}>
               <Text style={styles.stopBtnText}>Stop</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          <TouchableOpacity style={styles.scanBtn} onPress={scanLibrary}>
-            <Icon name="images-outline" size={18} color={COLORS.background} />
-            <Text style={styles.scanBtnText}>Find more photos</Text>
-          </TouchableOpacity>
+          <View style={styles.scanActions}>
+            <TouchableOpacity style={styles.scanPrimary} onPress={() => startScan('all')}>
+              <Icon name="search" size={18} color={COLORS.background} />
+              <Text style={styles.scanPrimaryText}>Scan all</Text>
+            </TouchableOpacity>
+            <View style={styles.scanRow}>
+              <TouchableOpacity style={styles.scanSecondary} onPress={() => startScan('photos')}>
+                <Icon name="images-outline" size={16} color={COLORS.face} />
+                <Text style={styles.scanSecondaryText}>Photos</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.scanSecondary} onPress={() => startScan('videos')}>
+                <Icon name="videocam-outline" size={16} color={COLORS.face} />
+                <Text style={styles.scanSecondaryText}>Videos</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
-      </View>
+      </LinearGradient>
 
       {loading && photos.length === 0 ? (
         <View style={styles.center}>
@@ -214,121 +215,188 @@ export function PersonPhotosScreen({route}: Props) {
           ListEmptyComponent={
             !loading ? (
               <View style={styles.empty}>
-                <Icon name="images-outline" size={48} color={COLORS.textMuted} />
-                <Text style={styles.emptyTitle}>No photos yet</Text>
+                <Icon name="people-circle-outline" size={52} color={COLORS.textMuted} />
+                <Text style={styles.emptyTitle}>No matches yet</Text>
                 <Text style={styles.emptySubtitle}>
-                  Tap “Find more photos” to scan your library like Google Photos
+                  Tap Scan all to search group photos and videos on your phone
                 </Text>
               </View>
             ) : null
           }
-          renderItem={({item}) => (
-            <TouchableOpacity
-              style={styles.tile}
-              onLongPress={() => handleDeletePhoto(item)}
-              activeOpacity={0.85}>
-              <Image
-                source={{uri: api.getImageUrl(item.imageUrl)}}
-                style={styles.tileImage}
-              />
-            </TouchableOpacity>
-          )}
+          renderItem={({item}) => {
+            const badge = photoBadge(item);
+            return (
+              <TouchableOpacity
+                style={styles.tile}
+                onPress={() => setViewerPhoto(item)}
+                onLongPress={() => handleDeletePhoto(item)}
+                activeOpacity={0.85}>
+                <Image source={{uri: api.getImageUrl(item.imageUrl)}} style={styles.tileImage} />
+                {item.confidence != null ? (
+                  <View style={styles.confidenceBadge}>
+                    <Text style={styles.confidenceText}>{Math.round(item.confidence)}%</Text>
+                  </View>
+                ) : null}
+                {badge ? (
+                  <View style={[styles.typeBadge, {backgroundColor: `${badge.color}DD`}]}>
+                    <Icon name={badge.icon} size={10} color={COLORS.text} />
+                    <Text style={styles.typeBadgeText}>{badge.label}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            );
+          }}
         />
       )}
+
+      <Modal visible={!!viewerPhoto} transparent animationType="fade">
+        <Pressable style={styles.viewerBackdrop} onPress={() => setViewerPhoto(null)}>
+          {viewerPhoto ? (
+            <>
+              <Image
+                source={{uri: api.getImageUrl(viewerPhoto.imageUrl)}}
+                style={styles.viewerImage}
+                resizeMode="contain"
+              />
+              <View style={styles.viewerMeta}>
+                {viewerPhoto.groupPhoto ? (
+                  <Text style={styles.viewerMetaText}>
+                    Group photo · {viewerPhoto.facesDetected ?? '?'} faces · matched face #{(viewerPhoto.matchedFaceIndex ?? 0) + 1}
+                  </Text>
+                ) : null}
+                {viewerPhoto.sourceType === 'VIDEO' ? (
+                  <Text style={styles.viewerMetaText}>
+                    Video at {formatVideoTimestamp(viewerPhoto.sourceTimestampMs) || '0:00'}
+                  </Text>
+                ) : null}
+                <Text style={styles.viewerMetaText}>
+                  Confidence {Math.round(viewerPhoto.confidence)}%
+                </Text>
+              </View>
+            </>
+          ) : null}
+          <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerPhoto(null)}>
+            <Icon name="close" size={28} color={COLORS.text} />
+          </TouchableOpacity>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  header: {
+  container: {flex: 1, backgroundColor: COLORS.background},
+  hero: {
     padding: SPACING.md,
+    gap: SPACING.sm,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-    gap: SPACING.sm,
   },
-  subtitle: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
-  },
-  scanBtn: {
+  heroTitle: {color: COLORS.text, fontSize: 17, fontWeight: '800'},
+  heroSub: {color: COLORS.textSecondary, fontSize: 13, lineHeight: 19},
+  scanActions: {gap: SPACING.sm, marginTop: SPACING.xs},
+  scanPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: SPACING.sm,
     backgroundColor: COLORS.face,
     paddingVertical: SPACING.md,
-    borderRadius: 14,
+    borderRadius: RADIUS.md,
   },
-  scanBtnText: {
-    color: COLORS.background,
-    fontWeight: '700',
-    fontSize: 15,
+  scanPrimaryText: {color: COLORS.background, fontWeight: '800', fontSize: 15},
+  scanRow: {flexDirection: 'row', gap: SPACING.sm},
+  scanSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: COLORS.face,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.md,
+    backgroundColor: 'rgba(0, 212, 170, 0.08)',
   },
-  scanRow: {
+  scanSecondaryText: {color: COLORS.face, fontWeight: '700', fontSize: 13},
+  scanProgressBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
+    marginTop: SPACING.xs,
+    padding: SPACING.sm,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
   },
-  scanText: {
-    flex: 1,
-    color: COLORS.textSecondary,
-    fontSize: 13,
-  },
+  scanProgressText: {flex: 1, color: COLORS.textSecondary, fontSize: 12},
   stopBtn: {
     paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
+    paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: COLORS.danger,
   },
-  stopBtnText: {
-    color: COLORS.danger,
-    fontWeight: '600',
-  },
-  grid: {
-    padding: GRID_GAP,
-  },
-  emptyList: {
-    flexGrow: 1,
-  },
+  stopBtnText: {color: COLORS.danger, fontWeight: '700', fontSize: 12},
+  grid: {padding: GRID_GAP},
+  emptyList: {flexGrow: 1},
   tile: {
     width: TILE_SIZE,
     height: TILE_SIZE,
     margin: GRID_GAP / 2,
-    borderRadius: 6,
+    borderRadius: RADIUS.sm,
     overflow: 'hidden',
     backgroundColor: COLORS.surface,
   },
-  tileImage: {
-    width: '100%',
-    height: '100%',
+  tileImage: {width: '100%', height: '100%'},
+  confidenceBadge: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
-  center: {
-    flex: 1,
+  confidenceText: {color: COLORS.text, fontSize: 10, fontWeight: '700'},
+  typeBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
+  typeBadgeText: {color: COLORS.text, fontSize: 9, fontWeight: '700'},
+  center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
   empty: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: SPACING.xl,
-    marginTop: 80,
+    marginTop: 60,
   },
-  emptyTitle: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: SPACING.md,
+  emptyTitle: {color: COLORS.text, fontSize: 18, fontWeight: '700', marginTop: SPACING.md},
+  emptySubtitle: {color: COLORS.textSecondary, textAlign: 'center', marginTop: SPACING.sm, lineHeight: 20},
+  viewerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  emptySubtitle: {
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    marginTop: SPACING.sm,
-    lineHeight: 20,
+  viewerImage: {width: '100%', height: '72%'},
+  viewerMeta: {
+    position: 'absolute',
+    bottom: 48,
+    left: SPACING.md,
+    right: SPACING.md,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    gap: 4,
   },
+  viewerMetaText: {color: COLORS.text, fontSize: 13, fontWeight: '600'},
+  viewerClose: {position: 'absolute', top: 50, right: 20, padding: 8},
 });

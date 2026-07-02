@@ -18,9 +18,11 @@ import {
   ImagePickerResponse,
 } from 'react-native-image-picker';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {AppHeader} from '../../components/AppHeader';
 import {api, FaceViewHint} from '../../api/client';
 import {COLORS, SPACING} from '../../config';
 import {FaceStackParamList} from '../../navigation/types';
+import {useLayoutMetrics} from '../../utils/layout';
 
 type Props = NativeStackScreenProps<FaceStackParamList, 'RegisterFace'>;
 
@@ -48,6 +50,7 @@ function viewLabel(view?: string) {
 }
 
 export function RegisterFaceScreen({navigation}: Props) {
+  const layout = useLayoutMetrics(true);
   const [name, setName] = useState('');
   const [notes, setNotes] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
@@ -110,7 +113,10 @@ export function RegisterFaceScreen({navigation}: Props) {
             'Profile ready',
             `${name} registered with ${views.length} face view${views.length === 1 ? '' : 's'}. Add more angles for side-face matching.`,
             [
-              {text: 'Add another angle', style: 'default'},
+              {
+                text: 'Add another angle',
+                onPress: () => {},
+              },
               {text: 'Done', onPress: () => navigation.goBack()},
             ],
           );
@@ -129,11 +135,15 @@ export function RegisterFaceScreen({navigation}: Props) {
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Text style={styles.hero}>
-          AI builds a face profile from any angle — front, side, or partial view.
-        </Text>
-
+      <AppHeader
+        title="Add Person"
+        subtitle="Register multiple angles for best AI matching"
+        showBack
+        accentColor={COLORS.face}
+      />
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[styles.content, {padding: layout.hPad, paddingBottom: layout.contentBottomPad}]}>
         <Text style={styles.label}>Person Name</Text>
         <TextInput
           style={styles.input}
@@ -231,7 +241,7 @@ export function RegisterFaceScreen({navigation}: Props) {
 const styles = StyleSheet.create({
   flex: {flex: 1},
   container: {flex: 1, backgroundColor: COLORS.background},
-  content: {padding: SPACING.md, paddingBottom: SPACING.xl},
+  content: {},
   hero: {
     color: COLORS.textSecondary,
     fontSize: 14,

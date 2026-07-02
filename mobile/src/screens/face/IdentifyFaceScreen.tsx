@@ -1,6 +1,5 @@
 import React, {useState} from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Image,
   ScrollView,
@@ -16,10 +15,20 @@ import {
   launchImageLibrary,
   ImagePickerResponse,
 } from 'react-native-image-picker';
+import {useNavigation} from '@react-navigation/native';
+import {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import {AppHeader} from '../../components/AppHeader';
+import {FaceScanOverlay} from '../../components/FaceScanOverlay';
 import {api, FaceIdentifyResult} from '../../api/client';
 import {COLORS, SPACING} from '../../config';
+import {FaceStackParamList} from '../../navigation/types';
+import {useLayoutMetrics} from '../../utils/layout';
+
+type Nav = NativeStackNavigationProp<FaceStackParamList>;
 
 export function IdentifyFaceScreen() {
+  const layout = useLayoutMetrics(true);
+  const navigation = useNavigation<Nav>();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [result, setResult] = useState<FaceIdentifyResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -52,39 +61,43 @@ export function IdentifyFaceScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <LinearGradient colors={['#0A2E28', COLORS.background]} style={styles.hero}>
-        <Icon name="scan-circle" size={40} color={COLORS.face} />
-        <Text style={styles.heroTitle}>Identify Person</Text>
-        <Text style={styles.heroSub}>
-          Finds the exact person among many — works with side angles and partial faces
-        </Text>
-      </LinearGradient>
-
-      <View style={styles.actions}>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => launchImageLibrary({mediaType: 'photo', quality: 0.85, maxWidth: 1280, maxHeight: 1280}, handleImageResult)}>
+    <View style={styles.flex}>
+      <AppHeader
+        title="Who is this?"
+        subtitle="Front, side & partial faces supported"
+        showBack
+        accentColor={COLORS.face}
+      />
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[styles.content, {paddingBottom: layout.contentBottomPad}]}>
+      <View style={[styles.actions, {paddingHorizontal: layout.hPad}]}>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => launchImageLibrary({mediaType: 'photo', maxWidth: 1280, maxHeight: 1280}, handleImageResult)}>
           <Icon name="images" size={22} color={COLORS.face} />
           <Text style={styles.actionText}>Gallery</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => launchCamera({mediaType: 'photo', quality: 0.85, cameraType: 'front', maxWidth: 1280, maxHeight: 1280}, handleImageResult)}>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => launchCamera({mediaType: 'photo', cameraType: 'front', maxWidth: 1280, maxHeight: 1280}, handleImageResult)}>
           <Icon name="camera" size={22} color={COLORS.face} />
           <Text style={styles.actionText}>Camera</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.previewWrap}>
+      <View style={[styles.previewWrap, {marginHorizontal: layout.hPad, height: layout.mediaHeight * 0.72}]}>
         {imageUri ? (
           <Image source={{uri: imageUri}} style={styles.preview} resizeMode="cover" />
         ) : (
           <View style={styles.previewPlaceholder}>
-            <Icon name="person-circle-outline" size={64} color={COLORS.textMuted} />
-            <Text style={styles.placeholderText}>No photo selected</Text>
+            <FaceScanOverlay label="Select a photo to scan" accent={COLORS.face} size={220} />
           </View>
         )}
+        {imageUri && !loading ? (
+          <View style={styles.scanFrame}>
+            <FaceScanOverlay active={false} label="Ready to identify" accent={COLORS.face} size={200} />
+          </View>
+        ) : null}
         {loading && (
           <View style={styles.scanOverlay}>
-            <ActivityIndicator size="large" color={COLORS.face} />
-            <Text style={styles.scanText}>Scanning face...</Text>
+            <FaceScanOverlay active label="AI scanning…" accent={COLORS.face} size={200} />
           </View>
         )}
       </View>
@@ -111,8 +124,8 @@ export function IdentifyFaceScreen() {
           </Text>
           <Text style={styles.resultSub}>
             {result.matched
-              ? `Match confidence: ${result.confidence}% · gap ${result.matchGap ?? 0}% over next person`
-              : `Best guess: ${result.confidence}% — not confident enough among registered people`}
+              ? `${result.confidence}% match confidence`
+              : `Closest match ${result.confidence}% — not sure enough`}
           </Text>
           {result.facesScanned != null && result.facesScanned > 1 ? (
             <Text style={styles.facesScanned}>
@@ -137,19 +150,43 @@ export function IdentifyFaceScreen() {
               ))}
             </View>
           ) : null}
+          {result.matched && result.personId ? (
+            <TouchableOpacity
+              style={styles.resultAction}
+              onPress={() =>
+                navigation.navigate('PersonPhotos', {
+                  personId: result.personId!,
+                  personName: result.personName || 'Person',
+                })
+              }>
+              <Icon name="images" size={20} color={COLORS.background} />
+              <Text style={styles.resultActionText}>View all photos</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.resultAction, styles.resultActionOutline]}
+              onPress={() => navigation.navigate('RegisterFace')}>
+              <Icon name="person-add" size={20} color={COLORS.face} />
+              <Text style={[styles.resultActionText, {color: COLORS.face}]}>
+                Register this person
+              </Text>
+            </TouchableOpacity>
+          )}
         </LinearGradient>
       )}
     </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {flex: 1, backgroundColor: COLORS.background},
   container: {flex: 1, backgroundColor: COLORS.background},
-  content: {paddingBottom: SPACING.xl},
+  content: {},
   hero: {padding: SPACING.lg, alignItems: 'center', marginBottom: SPACING.md},
   heroTitle: {color: COLORS.text, fontSize: 22, fontWeight: '800', marginTop: SPACING.sm},
   heroSub: {color: COLORS.textSecondary, textAlign: 'center', marginTop: SPACING.xs},
-  actions: {flexDirection: 'row', gap: SPACING.sm, paddingHorizontal: SPACING.md},
+  actions: {flexDirection: 'row', gap: SPACING.sm},
   actionBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: SPACING.sm, padding: SPACING.md, borderRadius: 14,
@@ -157,12 +194,19 @@ const styles = StyleSheet.create({
   },
   actionText: {color: COLORS.face, fontWeight: '700'},
   previewWrap: {
-    margin: SPACING.md, borderRadius: 20, overflow: 'hidden',
-    height: 300, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   preview: {width: '100%', height: '100%'},
   previewPlaceholder: {flex: 1, alignItems: 'center', justifyContent: 'center'},
-  placeholderText: {color: COLORS.textMuted, marginTop: SPACING.sm},
+  scanFrame: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scanOverlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -211,4 +255,22 @@ const styles = StyleSheet.create({
   candidateRank: {color: COLORS.textMuted, width: 24, fontWeight: '700'},
   candidateName: {flex: 1, color: COLORS.text, fontWeight: '600'},
   candidateScore: {color: COLORS.face, fontWeight: '700'},
+  resultAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.sm,
+    marginTop: SPACING.lg,
+    backgroundColor: COLORS.face,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: 14,
+    width: '100%',
+  },
+  resultActionOutline: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: COLORS.face,
+  },
+  resultActionText: {color: COLORS.background, fontWeight: '800', fontSize: 15},
 });

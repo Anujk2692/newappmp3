@@ -23,5 +23,8 @@ if command -v docker &>/dev/null; then
 fi
 
 echo "==> Starting backend on http://localhost:8080"
+if [[ -n "${SPRING_PROFILES_ACTIVE:-}" ]]; then
+  echo "    Profile: ${SPRING_PROFILES_ACTIVE}"
+fi
 cd "$ROOT/backend"
 mvn spring-boot:run

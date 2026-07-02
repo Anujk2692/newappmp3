@@ -1,4 +1,4 @@
-import {API_BASE_URL} from '../config';
+import {getApiBaseUrl, getApiKey, getServerCandidates, setApiBaseUrl} from '../config';
 import {normalizeFaceImage} from '../utils/imageUpload';
 
 export interface ApiResponse<T> {
@@ -28,6 +28,7 @@ export interface PlayableMedia {
   quality?: string;
   sourceUrl?: string;
   videoId?: string;
+  libraryId?: string;
 }
 
 export interface MediaItem {
@@ -63,6 +64,12 @@ export interface PersonPhoto {
   imageUrl: string;
   confidence: number;
   matchedAt?: string;
+  devicePhotoId?: string;
+  sourceType?: 'PHOTO' | 'VIDEO' | string;
+  sourceTimestampMs?: number;
+  facesDetected?: number;
+  groupPhoto?: boolean;
+  matchedFaceIndex?: number;
 }
 
 export interface LibraryScanResult {
@@ -71,6 +78,11 @@ export interface LibraryScanResult {
   saved: boolean;
   confidence: number;
   photoId?: string;
+  facesDetected?: number;
+  groupPhoto?: boolean;
+  matchedFaceIndex?: number;
+  sourceType?: string;
+  sourceTimestampMs?: number;
 }
 
 export interface PlayUrlResponse {
@@ -104,6 +116,53 @@ export interface FaceIdentifyResult {
   candidates?: FaceCandidate[];
 }
 
+export interface CaptureItem {
+  id: string;
+  type: 'PHOTO' | 'VIDEO';
+  fileName: string;
+  fileUrl: string;
+  thumbnailUrl?: string;
+  latitude?: number;
+  longitude?: number;
+  altitude?: number;
+  address?: string;
+  city?: string;
+  country?: string;
+  locationLabel?: string;
+  capturedAt?: string;
+  durationMs?: number;
+}
+
+/** Try each server URL until backend responds */
+export async function discoverServer(
+  candidates = getServerCandidates(),
+): Promise<string | null> {
+  const apiKey = getApiKey();
+  for (const base of candidates) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const headers: Record<string, string> = {Accept: 'application/json'};
+      if (apiKey) {
+        headers['X-API-Key'] = apiKey;
+      }
+      const response = await fetch(`${base}/api/health`, {
+        signal: controller.signal,
+        headers,
+      });
+      clearTimeout(timer);
+      const json = await response.json();
+      if (response.ok && json.success && json.data?.status === 'UP') {
+        setApiBaseUrl(base);
+        return base;
+      }
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -111,13 +170,16 @@ async function request<T>(
 ): Promise<ApiResponse<T>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const base = getApiBaseUrl();
+  const apiKey = getApiKey();
 
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(`${base}${path}`, {
       ...options,
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
+        ...(apiKey ? {'X-API-Key': apiKey} : {}),
         ...(options.body instanceof FormData
           ? {}
           : {'Content-Type': 'application/json'}),
@@ -126,17 +188,31 @@ async function request<T>(
     });
 
     const text = await response.text();
-    const json = text ? JSON.parse(text) : {success: false, message: 'Empty response'};
+    let json: ApiResponse<T>;
+    try {
+      json = text ? JSON.parse(text) : {success: false, message: 'Empty response', data: null as T};
+    } catch {
+      throw new Error(
+        response.ok
+          ? 'Invalid server response'
+          : `Server error (${response.status}). Is backend running?`,
+      );
+    }
 
     if (!response.ok) {
-      throw new Error(
-        json.message || json.error || `Request failed (${response.status})`,
-      );
+      throw new Error(json.message || `Request failed (${response.status})`);
     }
     return json;
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Request timed out. Check backend connection.');
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out. Check backend connection.');
+      }
+      if (error.message === 'Network request failed') {
+        throw new Error(
+          `Cannot reach server at ${base}. Same Wi‑Fi? Allow Local Network in Settings.`,
+        );
+      }
     }
     throw error;
   } finally {
@@ -145,7 +221,7 @@ async function request<T>(
 }
 
 export const api = {
-  health: () => request<{status: string; app: string}>('/api/health'),
+  health: () => request<{status: string; app: string}>('/api/health', {}, 8000),
 
   searchMedia: (q: string) =>
     request<MediaSearchResult[]>(
@@ -164,7 +240,7 @@ export const api = {
     }, 600000),
 
   preparePlayUrl: (videoId: string, type: 'AUDIO' | 'VIDEO') =>
-    request<PlayUrlResponse>(`/api/media/play/${videoId}?type=${type}`, {}, 300000),
+    request<PlayUrlResponse>(`/api/media/play/${videoId}?type=${type}`, {}, 15000),
 
   getAudioLibrary: () =>
     request<MediaItem[]>('/api/media/library/audio'),
@@ -218,6 +294,13 @@ export const api = {
   deletePerson: (id: string) =>
     request<void>(`/api/faces/${id}`, {method: 'DELETE'}),
 
+  updatePerson: (id: string, data: {name?: string; notes?: string}) =>
+    request<Person>(`/api/faces/${id}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    }),
+
   getPersonPhotos: (personId: string) =>
     request<PersonPhoto[]>(`/api/faces/person/${personId}/photos`),
 
@@ -226,6 +309,8 @@ export const api = {
     imageUri: string,
     devicePhotoId?: string,
     iosAssetId?: string,
+    sourceType: 'PHOTO' | 'VIDEO' = 'PHOTO',
+    sourceTimestampMs?: number,
   ) => {
     const uri = await normalizeFaceImage(imageUri, iosAssetId);
     const form = new FormData();
@@ -237,6 +322,10 @@ export const api = {
     if (devicePhotoId) {
       form.append('devicePhotoId', devicePhotoId);
     }
+    form.append('sourceType', sourceType);
+    if (sourceTimestampMs != null) {
+      form.append('sourceTimestampMs', String(sourceTimestampMs));
+    }
     return request<LibraryScanResult>(`/api/faces/person/${personId}/scan-library`, {
       method: 'POST',
       body: form,
@@ -246,11 +335,67 @@ export const api = {
   deletePersonPhoto: (photoId: string) =>
     request<void>(`/api/faces/photos/${photoId}`, {method: 'DELETE'}),
 
-  getStreamUrl: (streamUrl: string) => `${API_BASE_URL}${streamUrl}`,
+  getCaptures: () => request<CaptureItem[]>('/api/captures'),
+
+  getCapture: (id: string) => request<CaptureItem>(`/api/captures/${id}`),
+
+  uploadCapture: async (payload: {
+    fileUri: string;
+    fileName: string;
+    mimeType: string;
+    type: 'PHOTO' | 'VIDEO';
+    latitude?: number;
+    longitude?: number;
+    altitude?: number;
+    address?: string;
+    city?: string;
+    country?: string;
+    durationMs?: number;
+  }) => {
+    const form = new FormData();
+    form.append('file', {
+      uri: payload.fileUri.startsWith('file://')
+        ? payload.fileUri
+        : `file://${payload.fileUri}`,
+      type: payload.mimeType,
+      name: payload.fileName,
+    } as unknown as Blob);
+    form.append('type', payload.type);
+    if (payload.latitude != null) {
+      form.append('latitude', String(payload.latitude));
+    }
+    if (payload.longitude != null) {
+      form.append('longitude', String(payload.longitude));
+    }
+    if (payload.altitude != null) {
+      form.append('altitude', String(payload.altitude));
+    }
+    if (payload.address) {
+      form.append('address', payload.address);
+    }
+    if (payload.city) {
+      form.append('city', payload.city);
+    }
+    if (payload.country) {
+      form.append('country', payload.country);
+    }
+    if (payload.durationMs != null) {
+      form.append('durationMs', String(payload.durationMs));
+    }
+    return request<CaptureItem>('/api/captures', {
+      method: 'POST',
+      body: form,
+    }, 300000);
+  },
+
+  deleteCapture: (id: string) =>
+    request<void>(`/api/captures/${id}`, {method: 'DELETE'}),
+
+  getStreamUrl: (streamUrl: string) => `${getApiBaseUrl()}${streamUrl}`,
 
   getPlayStreamUrl: (videoId: string, type: 'AUDIO' | 'VIDEO') =>
-    `${API_BASE_URL}/api/media/play/${videoId}?type=${type}`,
+    `${getApiBaseUrl()}/api/media/stream/${videoId}?type=${type}`,
 
   getImageUrl: (imageUrl?: string) =>
-    imageUrl ? `${API_BASE_URL}${imageUrl}` : undefined,
+    imageUrl ? `${getApiBaseUrl()}${imageUrl}` : undefined,
 };

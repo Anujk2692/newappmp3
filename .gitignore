@@ -2,6 +2,7 @@
 *.log
 .env
 .env.*
+!.env.example
 
 # Backend
 backend/target/
@@ -14,3 +15,8 @@ mobile/ios/build/
 mobile/android/build/
 mobile/android/.gradle/
 mobile/android/app/build/
+mobile/android/*.keystore
+mobile/android/app/*.keystore
+*.jks
+backend.log
+.backend.pid

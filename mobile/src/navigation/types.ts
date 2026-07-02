@@ -1,5 +1,7 @@
+import {NavigatorScreenParams} from '@react-navigation/native';
+
 export type MediaStackParamList = {
-  Search: undefined;
+  Search: {tab?: 'SearchTab' | 'AudioTab' | 'VideoTab'} | undefined;
   Player: {
     item?: import('../api/client').MediaItem;
     media?: import('../api/client').PlayableMedia;
@@ -14,7 +16,21 @@ export type FaceStackParamList = {
   PersonPhotos: {personId: string; personName: string};
 };
 
+export type CameraStackParamList = {
+  CameraHome: undefined;
+  CapturesGallery: undefined;
+  CaptureDetail: {captureId: string};
+};
+
 export type RootTabParamList = {
-  Media: undefined;
-  Faces: undefined;
+  Home: undefined;
+  Media: NavigatorScreenParams<MediaStackParamList> | undefined;
+  Camera: NavigatorScreenParams<CameraStackParamList> | undefined;
+  Faces: NavigatorScreenParams<FaceStackParamList> | undefined;
+};
+
+export type RootStackParamList = {
+  Main: NavigatorScreenParams<RootTabParamList> | undefined;
+  Settings: undefined;
+  Guide: undefined;
 };

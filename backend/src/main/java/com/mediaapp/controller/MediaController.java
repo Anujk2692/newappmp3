@@ -5,6 +5,8 @@ import com.mediaapp.model.MediaItem;
 import com.mediaapp.model.MediaType;
 import com.mediaapp.service.MediaService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,6 +15,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/media")
 @RequiredArgsConstructor
@@ -52,12 +55,27 @@ public class MediaController {
     }
 
     @GetMapping("/stream/{videoId}")
-    public ResponseEntity<StreamingResponseBody> stream(
+    public ResponseEntity<?> stream(
             @PathVariable String videoId,
-            @RequestParam MediaType type) {
+            @RequestParam MediaType type,
+            @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader) {
+        try {
+            var cached = mediaService.tryServeCachedStream(videoId, type, rangeHeader);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+
+            var direct = mediaService.tryServeDirectStream(videoId, type, rangeHeader);
+            if (direct.isPresent()) {
+                return direct.get();
+            }
+        } catch (Exception e) {
+            log.debug("Fast stream path failed for {} {}: {}", videoId, type, e.getMessage());
+        }
+
         StreamingResponseBody body = outputStream -> {
             try {
-                mediaService.writeStream(videoId, type, outputStream);
+                mediaService.writeStreamPipe(videoId, type, outputStream);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Stream interrupted");

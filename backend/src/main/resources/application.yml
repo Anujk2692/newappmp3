@@ -1,5 +1,6 @@
 server:
   port: 8080
+  address: 0.0.0.0
 
 spring:
   data:
@@ -7,13 +8,14 @@ spring:
       uri: ${MONGODB_URI:mongodb://localhost:27019/mediaface}
   servlet:
     multipart:
-      max-file-size: 50MB
-      max-request-size: 50MB
+      max-file-size: 120MB
+      max-request-size: 120MB
 
 app:
   storage:
     downloads-dir: ./storage/downloads
     faces-dir: ./storage/faces
+    captures-dir: ./storage/captures
   face:
     models-dir: ./storage/models
     match-threshold: 0.34
@@ -24,6 +26,9 @@ app:
     min-face-size-identify: 36
     min-face-size-side: 48
   media:
-    yt-dlp-path: yt-dlp
+    yt-dlp-path: ${YT_DLP_PATH:yt-dlp}
   cors:
-    allowed-origins: "*"
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+  security:
+    api-key: ${API_KEY:}
+    require-api-key: false

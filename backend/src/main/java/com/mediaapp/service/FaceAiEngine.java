@@ -37,7 +37,7 @@ public class FaceAiEngine {
             "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx";
     private static final String SFACE_URL =
             "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx";
-    private static final int MAX_FACES_PER_IMAGE = 8;
+    private static final int MAX_FACES_PER_IMAGE = 20;
 
     private final Path modelsDir;
 
@@ -258,6 +258,16 @@ public class FaceAiEngine {
 
     /** Extract embeddings from every face found (standard + sensitive pass for partial faces). */
     public List<Mat> extractAllFeatures(Path imagePath, boolean sensitive) {
+        List<FaceFeatureDetail> details = extractAllFeatureDetails(imagePath, sensitive);
+        List<Mat> features = new ArrayList<>();
+        for (FaceFeatureDetail detail : details) {
+            features.add(detail.getFeature());
+        }
+        return features;
+    }
+
+    /** All faces with bounding boxes — used for group photo / video frame matching. */
+    public List<FaceFeatureDetail> extractAllFeatureDetails(Path imagePath, boolean sensitive) {
         Mat image = readImage(imagePath);
         if (image.empty()) {
             image.release();
@@ -267,16 +277,26 @@ public class FaceAiEngine {
         try {
             int minSize = sensitive ? minFaceSizeIdentify : minFaceSizeRegister;
             List<DetectedFace> faces = detectAllFaces(image, sensitive, minSize);
-            List<Mat> features = new ArrayList<>();
+            List<FaceFeatureDetail> details = new ArrayList<>();
+            int total = faces.size();
 
-            for (DetectedFace detected : faces) {
+            for (int i = 0; i < faces.size(); i++) {
+                DetectedFace detected = faces.get(i);
                 Mat feature = featureFromFace(image, detected.faceRow());
-                detected.faceRow().release();
                 if (feature != null && !feature.empty()) {
-                    features.add(feature);
+                    details.add(FaceFeatureDetail.builder()
+                            .feature(feature)
+                            .faceIndex(i)
+                            .totalFaces(total)
+                            .boxX(detected.faceRow().get(0, 0)[0])
+                            .boxY(detected.faceRow().get(0, 1)[0])
+                            .boxW(detected.width())
+                            .boxH(detected.height())
+                            .build());
                 }
+                detected.faceRow().release();
             }
-            return features;
+            return details;
         } finally {
             image.release();
         }

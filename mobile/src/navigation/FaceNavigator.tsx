@@ -13,31 +13,13 @@ export function FaceNavigator() {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerStyle: {backgroundColor: COLORS.background},
-        headerTintColor: COLORS.text,
-        headerTitleStyle: {fontWeight: '700'},
+        headerShown: false,
         contentStyle: {backgroundColor: COLORS.background},
       }}>
-      <Stack.Screen
-        name="FaceHome"
-        component={FaceHomeScreen}
-        options={{title: 'Face Recognition'}}
-      />
-      <Stack.Screen
-        name="RegisterFace"
-        component={RegisterFaceScreen}
-        options={{title: 'Register Face'}}
-      />
-      <Stack.Screen
-        name="IdentifyFace"
-        component={IdentifyFaceScreen}
-        options={{title: 'Identify Person'}}
-      />
-      <Stack.Screen
-        name="PersonPhotos"
-        component={PersonPhotosScreen}
-        options={({route}) => ({title: route.params.personName})}
-      />
+      <Stack.Screen name="FaceHome" component={FaceHomeScreen} />
+      <Stack.Screen name="RegisterFace" component={RegisterFaceScreen} />
+      <Stack.Screen name="IdentifyFace" component={IdentifyFaceScreen} />
+      <Stack.Screen name="PersonPhotos" component={PersonPhotosScreen} />
     </Stack.Navigator>
   );
 }

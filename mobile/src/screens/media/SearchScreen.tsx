@@ -1,34 +1,41 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
   Alert,
   FlatList,
-  Modal,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {useNavigation} from '@react-navigation/native';
-import {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Ionicons';
+import {useFocusEffect} from '@react-navigation/native';
 import {SearchBar} from '../../components/SearchBar';
 import {MediaCard, formatDuration} from '../../components/MediaCard';
 import {EmptyState} from '../../components/EmptyState';
+import {MediaListSkeleton} from '../../components/Skeleton';
+import {usePlayback} from '../../context/PlaybackContext';
 import {api, MediaSearchResult, PlayableMedia} from '../../api/client';
-import {COLORS, SPACING} from '../../config';
-import {MediaStackParamList} from '../../navigation/types';
+import {COLORS, RADIUS, SPACING} from '../../config';
+import {consumePendingSearchQuery} from '../../utils/searchIntent';
+import {useLayoutMetrics} from '../../utils/layout';
 
-type Nav = NativeStackNavigationProp<MediaStackParamList>;
+const QUICK_SEARCHES = [
+  'Trending songs',
+  'Bollywood hits',
+  'Lo-fi beats',
+  'Pop music 2024',
+  'Music video HD',
+  'Chill playlist',
+];
 
 export function SearchScreen() {
-  const insets = useSafeAreaInsets();
-  const navigation = useNavigation<Nav>();
+  const {play: startPlayback} = usePlayback();
+  const layout = useLayoutMetrics(true);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MediaSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [preparing, setPreparing] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<Record<string, 'AUDIO' | 'VIDEO'>>({});
   const [playing, setPlaying] = useState<Record<string, 'AUDIO' | 'VIDEO'>>({});
 
@@ -51,35 +58,55 @@ export function SearchScreen() {
     }
   }, [query]);
 
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      handleSearch();
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [query, handleSearch]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const pending = consumePendingSearchQuery();
+      if (pending) {
+        setQuery(pending);
+      }
+    }, []),
+  );
+
   const handlePlay = async (item: MediaSearchResult, type: 'AUDIO' | 'VIDEO') => {
     setPlaying(prev => ({...prev, [item.videoId]: type}));
-    setPreparing(`${type}:${item.videoId}`);
     try {
-      const response = await api.preparePlayUrl(item.videoId, type);
-      if (!response.success || !response.data?.streamUrl) {
-        Alert.alert('Playback failed', response.message || 'Could not prepare media');
-        return;
-      }
-
+      const prep = await api.preparePlayUrl(item.videoId, type);
+      const streamPath =
+        prep.success && prep.data?.streamUrl
+          ? prep.data.streamUrl
+          : `/api/media/stream/${item.videoId}?type=${type}`;
+      const streamUrl = api.getStreamUrl(streamPath);
       const media: PlayableMedia = {
         title: item.title,
         type,
-        streamUrl: api.getStreamUrl(response.data.streamUrl),
+        streamUrl,
         thumbnailUrl: item.thumbnailUrl,
-        quality: response.data.quality || (type === 'AUDIO' ? item.audioFormat : item.videoFormat),
+        quality:
+          prep.success && prep.data?.quality
+            ? prep.data.quality
+            : type === 'AUDIO'
+              ? item.audioFormat
+              : item.videoFormat,
         sourceUrl: item.sourceUrl,
         videoId: item.videoId,
       };
-
-      const parent = navigation.getParent<Nav>();
-      (parent ?? navigation).navigate('Player', {media, streamUrl: media.streamUrl});
+      startPlayback(media, streamUrl);
     } catch (e) {
       Alert.alert(
         'Playback failed',
         e instanceof Error ? e.message : 'Stream could not start. Try downloading instead.',
       );
     } finally {
-      setPreparing(null);
       setPlaying(prev => {
         const next = {...prev};
         delete next[item.videoId];
@@ -120,15 +147,6 @@ export function SearchScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#1A1033', COLORS.background]}
-        style={[styles.header, {paddingTop: insets.top + SPACING.sm}]}>
-        <Text style={styles.headerTitle}>Search Any Song</Text>
-        <Text style={styles.headerSubtitle}>
-          Play audio & HD video instantly, or save to your library
-        </Text>
-      </LinearGradient>
-
       <SearchBar
         value={query}
         onChangeText={setQuery}
@@ -137,18 +155,37 @@ export function SearchScreen() {
         placeholder="Search any song, artist, music video..."
       />
 
+      {results.length === 0 && !loading ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chips}
+          style={styles.chipsWrap}>
+          {QUICK_SEARCHES.map(q => (
+            <TouchableOpacity key={q} style={styles.chip} onPress={() => setQuery(q)}>
+              <Icon name="flash" size={14} color={COLORS.primary} />
+              <Text style={styles.chipText}>{q}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      ) : null}
+
       <FlatList
         data={results}
         keyExtractor={item => item.videoId}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={handleSearch} tintColor={COLORS.primary} />
+          <RefreshControl refreshing={loading && results.length > 0} onRefresh={handleSearch} tintColor={COLORS.primary} />
+        }
+        ListHeaderComponent={
+          loading && results.length === 0 ? <MediaListSkeleton count={6} /> : null
         }
         ListEmptyComponent={
           !loading ? (
             <EmptyState
               icon="search-outline"
-              title="Search any song on Google"
-              subtitle="Play MP3 or HD video instantly, or download to your library"
+              title="Search any song or video"
+              subtitle="Type at least 2 characters — results appear automatically"
+              accentColor={COLORS.primary}
             />
           ) : null
         }
@@ -172,27 +209,33 @@ export function SearchScreen() {
             onDownloadVideo={() => handleDownload(item, 'VIDEO')}
           />
         )}
-        contentContainerStyle={results.length === 0 ? styles.emptyList : undefined}
+        contentContainerStyle={
+          results.length === 0 && !loading
+            ? [styles.emptyList, {paddingBottom: layout.contentBottomPadWithPlayer}]
+            : [styles.list, {paddingBottom: layout.contentBottomPadWithPlayer}]
+        }
       />
-
-      <Modal transparent visible={!!preparing} animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Icon name="hourglass-outline" size={32} color={COLORS.primary} />
-            <Text style={styles.modalTitle}>Preparing playback...</Text>
-            <Text style={styles.modalSub}>This may take 1–2 minutes on first play</Text>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: COLORS.background},
-  header: {paddingHorizontal: SPACING.md, paddingBottom: SPACING.md},
-  headerTitle: {color: COLORS.text, fontSize: 26, fontWeight: '800'},
-  headerSubtitle: {color: COLORS.textSecondary, fontSize: 14, marginTop: SPACING.xs, lineHeight: 20},
+  chipsWrap: {maxHeight: 48, marginBottom: SPACING.xs},
+  chips: {paddingHorizontal: SPACING.md, gap: SPACING.sm},
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.surfaceLight,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  chipText: {color: COLORS.text, fontWeight: '700', fontSize: 13},
+  list: {},
   emptyList: {flexGrow: 1},
   modalBackdrop: {
     flex: 1,

@@ -15,4 +15,9 @@ public class LibraryScanResultDto {
     private boolean saved;
     private double confidence;
     private String photoId;
+    private Integer facesDetected;
+    private Boolean groupPhoto;
+    private Integer matchedFaceIndex;
+    private String sourceType;
+    private Long sourceTimestampMs;
 }

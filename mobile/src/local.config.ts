@@ -13,4 +13,4 @@
 export const USE_PHYSICAL_DEVICE = true;
 
 /** Your Mac's LAN IP — update if your network changes */
-export const LAN_BACKEND_HOST = '192.168.0.104';
+export const LAN_BACKEND_HOST = '192.168.0.105';

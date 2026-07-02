@@ -14,6 +14,7 @@ public class StorageInitializer {
 
     private final Path downloadsPath;
     private final Path facesPath;
+    private final Path capturesPath;
 
     @PostConstruct
     public void init() throws IOException {
@@ -21,5 +22,7 @@ public class StorageInitializer {
         Files.createDirectories(downloadsPath.resolve("video"));
         Files.createDirectories(downloadsPath.resolve("cache"));
         Files.createDirectories(facesPath);
+        Files.createDirectories(capturesPath.resolve("photos"));
+        Files.createDirectories(capturesPath.resolve("videos"));
     }
 }

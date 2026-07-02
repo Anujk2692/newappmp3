@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>MediaFaceApp</string>
+	<string>MediaFace</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -34,9 +34,21 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Camera access is needed to capture faces for recognition.</string>
+	<string>Camera access is needed to capture photos, videos, and faces for recognition.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Microphone access is needed to record video with sound.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Location is used to geotag your photos and videos with where they were taken.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MediaFace connects to your Mac on the same Wi‑Fi to play music and run face recognition.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_metro._tcp</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Photo library access is needed to find all photos of people you add.</string>
+	<string>Full photo and video library access is needed to find people in group photos and videos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save matched photos to your albums.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

@@ -1,0 +1,17 @@
+# HTTPS reverse proxy for MediaFace backend
+# Enable with: docker compose -f docker-compose.prod.yml --profile https up -d
+#
+# Set DOMAIN=api.yourdomain.com in .env and ensure DNS points to this server.
+
+{$DOMAIN} {
+    reverse_proxy backend:8080
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        -Server
+    }
+
+    encode gzip
+}

@@ -15,9 +15,13 @@ import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,6 +30,13 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+
+import com.mediaapp.util.RangeFileResponse;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
 @Slf4j
 @Service
@@ -37,6 +48,13 @@ public class MediaService {
     private final Path downloadsPath;
 
     private final Map<String, Object> downloadLocks = new ConcurrentHashMap<>();
+    private final Map<String, DirectUrlEntry> directUrlCache = new ConcurrentHashMap<>();
+
+    private record DirectUrlEntry(String url, Instant expiresAt) {}
+
+    private static final String YT_EXTRACTOR_ARGS = "youtube:player_client=android,web";
+    private static final String YT_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
     @Value("${app.media.yt-dlp-path:yt-dlp}")
     private String ytDlpPath;
@@ -89,29 +107,265 @@ public class MediaService {
     private MediaSearchResultDto enrichWithStreamUrls(MediaSearchResultDto result) {
         result.setAudioFormat("MP3 / M4A");
         result.setVideoFormat("MP4 / HD");
-        result.setAudioStreamUrl("/api/media/play/" + result.getVideoId() + "?type=AUDIO");
-        result.setVideoStreamUrl("/api/media/play/" + result.getVideoId() + "?type=VIDEO");
+        result.setAudioStreamUrl("/api/media/stream/" + result.getVideoId() + "?type=AUDIO");
+        result.setVideoStreamUrl("/api/media/stream/" + result.getVideoId() + "?type=VIDEO");
         return result;
+    }
+
+    public Optional<ResponseEntity<Resource>> tryServeCachedStream(
+            String videoId, MediaType type, String rangeHeader) throws IOException {
+        Path cached = cachePath(videoId, type);
+        if (!Files.exists(cached) || Files.size(cached) == 0) {
+            return Optional.empty();
+        }
+        if (type == MediaType.VIDEO && !isValidMp4(cached)) {
+            Files.deleteIfExists(cached);
+            return Optional.empty();
+        }
+        return Optional.of(RangeFileResponse.serve(cached, getStreamContentType(type), rangeHeader));
+    }
+
+    public Optional<ResponseEntity<Resource>> tryServeDirectStream(
+            String videoId, MediaType type, String rangeHeader) {
+        try {
+            String directUrl = resolveDirectUrl(videoId, type);
+            warmCacheAsync(videoId, type);
+            return Optional.of(proxyHttpStream(directUrl, rangeHeader, getStreamContentType(type)));
+        } catch (Exception e) {
+            log.debug("Direct stream unavailable for {} {}: {}", videoId, type, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    public void writeStreamPipe(String videoId, MediaType type, java.io.OutputStream outputStream)
+            throws IOException, InterruptedException {
+        pipeFromYtDlp(buildSourceUrl(videoId), type, outputStream);
+        warmCacheAsync(videoId, type);
+    }
+
+    public void warmCacheAsync(String videoId, MediaType type) {
+        new Thread(() -> {
+            try {
+                ensureCachedPlayback(videoId, type);
+            } catch (Exception e) {
+                log.debug("Background cache skipped for {} {}: {}", videoId, type, e.getMessage());
+            }
+        }).start();
+    }
+
+    public void writeStream(String videoId, MediaType type, java.io.OutputStream outputStream)
+            throws IOException, InterruptedException {
+        Path cached = cachePath(videoId, type);
+        if (Files.exists(cached) && Files.size(cached) > 0) {
+            if (type == MediaType.VIDEO && !isValidMp4(cached)) {
+                Files.deleteIfExists(cached);
+            } else {
+                Files.copy(cached, outputStream);
+                return;
+            }
+        }
+
+        try {
+            String directUrl = resolveDirectUrl(videoId, type);
+            HttpURLConnection conn = openDirectConnection(directUrl, null);
+            try (InputStream in = conn.getInputStream()) {
+                in.transferTo(outputStream);
+            }
+            warmCacheAsync(videoId, type);
+            return;
+        } catch (Exception e) {
+            log.debug("Direct pipe failed, using yt-dlp stdout: {}", e.getMessage());
+        }
+
+        writeStreamPipe(videoId, type, outputStream);
+    }
+
+    private Path cachePath(String videoId, MediaType type) {
+        String ext = type == MediaType.AUDIO ? ".m4a" : ".mp4";
+        return downloadsPath.resolve("cache").resolve(videoId + "_" + type.name().toLowerCase() + ext);
+    }
+
+    private String resolveDirectUrl(String videoId, MediaType type)
+            throws IOException, InterruptedException {
+        String key = videoId + ":" + type.name();
+        DirectUrlEntry cached = directUrlCache.get(key);
+        if (cached != null && cached.expiresAt.isAfter(Instant.now())) {
+            return cached.url;
+        }
+
+        Object lock = downloadLocks.computeIfAbsent("url:" + key, k -> new Object());
+        synchronized (lock) {
+            cached = directUrlCache.get(key);
+            if (cached != null && cached.expiresAt.isAfter(Instant.now())) {
+                return cached.url;
+            }
+
+            List<String> cmd = new ArrayList<>();
+            cmd.add(ytDlpPath);
+            cmd.add(buildSourceUrl(videoId));
+            cmd.add("--no-playlist");
+            cmd.add("--no-warnings");
+            cmd.add("--extractor-args");
+            cmd.add(YT_EXTRACTOR_ARGS);
+            cmd.add("-g");
+            if (type == MediaType.AUDIO) {
+                cmd.add("-f");
+                cmd.add("140/bestaudio[ext=m4a]/bestaudio/best");
+            } else {
+                cmd.add("-f");
+                cmd.add("18/best[height<=480][ext=mp4][vcodec^=avc1]/best[ext=mp4]/best");
+            }
+
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            String url;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                url = reader.lines()
+                        .map(String::trim)
+                        .filter(line -> line.startsWith("http"))
+                        .findFirst()
+                        .orElse(null);
+            }
+
+            if (!process.waitFor(30, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new IllegalStateException("Direct URL lookup timed out");
+            }
+            if (process.exitValue() != 0 || url == null || url.isBlank()) {
+                throw new IllegalStateException("Could not resolve direct stream URL");
+            }
+
+            directUrlCache.put(key, new DirectUrlEntry(url, Instant.now().plus(Duration.ofMinutes(45))));
+            return url;
+        }
+    }
+
+    private ResponseEntity<Resource> proxyHttpStream(
+            String directUrl, String rangeHeader, String contentType) throws IOException {
+        HttpURLConnection conn = openDirectConnection(directUrl, rangeHeader);
+        int code = conn.getResponseCode();
+        HttpStatus status = code == HttpStatus.PARTIAL_CONTENT.value()
+                ? HttpStatus.PARTIAL_CONTENT
+                : HttpStatus.OK;
+
+        InputStream bodyStream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+        if (bodyStream == null) {
+            throw new IOException("Empty response from media host");
+        }
+
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(status)
+                .header(HttpHeaders.CONTENT_TYPE, contentType)
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache");
+
+        long contentLength = conn.getContentLengthLong();
+        if (contentLength >= 0) {
+            builder.header(HttpHeaders.CONTENT_LENGTH, String.valueOf(contentLength));
+        }
+        String contentRange = conn.getHeaderField(HttpHeaders.CONTENT_RANGE);
+        if (contentRange != null) {
+            builder.header(HttpHeaders.CONTENT_RANGE, contentRange);
+        }
+
+        return builder.body(new InputStreamResource(bodyStream));
+    }
+
+    private HttpURLConnection openDirectConnection(String directUrl, String rangeHeader) throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) new URL(directUrl).openConnection();
+        conn.setInstanceFollowRedirects(true);
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(120000);
+        conn.setRequestProperty(HttpHeaders.USER_AGENT, YT_USER_AGENT);
+        conn.setRequestProperty(HttpHeaders.ACCEPT, "*/*");
+        conn.setRequestProperty(HttpHeaders.CONNECTION, "keep-alive");
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            conn.setRequestProperty(HttpHeaders.RANGE, rangeHeader);
+        }
+        conn.connect();
+        return conn;
     }
 
     public PlayUrlDto preparePlayback(String videoId, MediaType type) {
         try {
-            Path cached = ensureCachedPlayback(videoId, type);
-            String ext = cached.getFileName().toString().substring(cached.getFileName().toString().lastIndexOf('.'));
+            Path cached = cachePath(videoId, type);
+
+            if (Files.exists(cached) && Files.size(cached) > 0
+                    && (type != MediaType.VIDEO || isValidMp4(cached))) {
+                return PlayUrlDto.builder()
+                        .videoId(videoId)
+                        .type(type)
+                        .streamUrl("/files/cache/" + cached.getFileName())
+                        .contentType(type == MediaType.AUDIO ? "audio/mp4" : "video/mp4")
+                        .quality(type == MediaType.AUDIO ? "Cached Audio" : videoQualityLabel())
+                        .cached(true)
+                        .build();
+            }
+
+            warmCacheAsync(videoId, type);
+
             return PlayUrlDto.builder()
                     .videoId(videoId)
                     .type(type)
-                    .streamUrl("/files/cache/" + cached.getFileName())
+                    .streamUrl("/api/media/stream/" + videoId + "?type=" + type)
                     .contentType(type == MediaType.AUDIO ? "audio/mp4" : "video/mp4")
-                    .quality(type == MediaType.AUDIO ? "Best Audio" : videoQualityLabel())
-                    .cached(true)
+                    .quality(type == MediaType.AUDIO ? "Streaming Audio" : "Streaming Video")
+                    .cached(false)
                     .build();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Playback preparation interrupted");
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.error("Playback prepare failed for {} {}", videoId, type, e);
-            throw new IllegalStateException("Could not prepare playback. Try download instead.");
+            throw new IllegalStateException("Could not prepare playback. Try again.");
+        }
+    }
+
+    private void pipeFromYtDlp(String sourceUrl, MediaType type, java.io.OutputStream outputStream)
+            throws IOException, InterruptedException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add(ytDlpPath);
+        cmd.add(sourceUrl);
+        cmd.add("--no-playlist");
+        cmd.add("--no-warnings");
+        cmd.add("--extractor-args");
+        cmd.add(YT_EXTRACTOR_ARGS);
+        cmd.add("-o");
+        cmd.add("-");
+        if (type == MediaType.AUDIO) {
+            // Format 140 = ~128kbps m4a — starts much faster than bestaudio
+            cmd.add("-f");
+            cmd.add("140/bestaudio[ext=m4a]/bestaudio/best");
+        } else {
+            cmd.add("-f");
+            cmd.add("18/best[height<=480][ext=mp4][vcodec^=avc1]/best[ext=mp4]/best");
+        }
+
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(false);
+        Process process = pb.start();
+
+        Thread drainErr = new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    log.debug("yt-dlp pipe: {}", line);
+                }
+            } catch (IOException ignored) {
+            }
+        });
+        drainErr.start();
+
+        try (var in = process.getInputStream()) {
+            in.transferTo(outputStream);
+        }
+
+        if (!process.waitFor(300, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new IllegalStateException("Stream timed out");
+        }
+        drainErr.join(5000);
+
+        if (process.exitValue() != 0) {
+            throw new IllegalStateException("Stream failed. Check yt-dlp and network.");
         }
     }
 
@@ -119,9 +373,7 @@ public class MediaService {
             throws IOException, InterruptedException {
         Path cacheDir = downloadsPath.resolve("cache");
         Files.createDirectories(cacheDir);
-
-        String ext = type == MediaType.AUDIO ? ".m4a" : ".mp4";
-        Path cached = cacheDir.resolve(videoId + "_" + type.name().toLowerCase() + ext);
+        Path cached = cachePath(videoId, type);
 
         if (Files.exists(cached) && Files.size(cached) > 0) {
             if (type == MediaType.VIDEO && !isValidMp4(cached)) {
@@ -176,15 +428,9 @@ public class MediaService {
                 .videoFormat("MP4")
                 .audioQuality("Best Audio")
                 .videoQuality("Best Video")
-                .audioStreamUrl("/api/media/play/" + videoId + "?type=AUDIO")
-                .videoStreamUrl("/api/media/play/" + videoId + "?type=VIDEO")
+                .audioStreamUrl("/api/media/stream/" + videoId + "?type=AUDIO")
+                .videoStreamUrl("/api/media/stream/" + videoId + "?type=VIDEO")
                 .build();
-    }
-
-    public void writeStream(String videoId, MediaType type, java.io.OutputStream outputStream)
-            throws IOException, InterruptedException {
-        Path cached = ensureCachedPlayback(videoId, type);
-        Files.copy(cached, outputStream);
     }
 
     public String getStreamContentType(MediaType type) {
@@ -340,7 +586,8 @@ public class MediaService {
         if (type == MediaType.AUDIO) {
             runYtDlp(List.of(
                     ytDlpPath, sourceUrl, "--no-playlist", "--no-warnings",
-                    "-f", "bestaudio[ext=m4a]/bestaudio/best",
+                    "--extractor-args", YT_EXTRACTOR_ARGS,
+                    "-f", "140/bestaudio[ext=m4a]/bestaudio/best",
                     "-o", outputPath.toString()
             ));
         } else {

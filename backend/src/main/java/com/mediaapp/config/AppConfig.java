@@ -29,6 +29,11 @@ public class AppConfig implements WebMvcConfigurer {
         return Paths.get(facesDir).toAbsolutePath().normalize();
     }
 
+    @Bean
+    public Path capturesPath(@Value("${app.storage.captures-dir}") String capturesDir) {
+        return Paths.get(capturesDir).toAbsolutePath().normalize();
+    }
+
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         // Static files served by FileStreamController for Range/seek support
@@ -38,7 +43,7 @@ public class AppConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
                 .allowedOriginPatterns(allowedOrigins.split(","))
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(false);
         registry.addMapping("/files/**")

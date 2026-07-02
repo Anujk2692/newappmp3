@@ -1,0 +1,17 @@
+spring:
+  data:
+    mongodb:
+      uri: ${MONGODB_URI}
+
+logging:
+  level:
+    root: WARN
+    com.mediaapp: INFO
+    org.springframework.web: WARN
+
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:https://localhost}
+  security:
+    api-key: ${API_KEY}
+    require-api-key: true

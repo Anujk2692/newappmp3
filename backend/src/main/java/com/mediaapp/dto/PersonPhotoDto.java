@@ -15,4 +15,10 @@ public class PersonPhotoDto {
     private String imageUrl;
     private double confidence;
     private String matchedAt;
+    private String devicePhotoId;
+    private String sourceType;
+    private Long sourceTimestampMs;
+    private Integer facesDetected;
+    private Boolean groupPhoto;
+    private Integer matchedFaceIndex;
 }

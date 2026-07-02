@@ -5,6 +5,7 @@ import com.mediaapp.dto.FaceIdentifyResult;
 import com.mediaapp.dto.LibraryScanResultDto;
 import com.mediaapp.dto.PersonDto;
 import com.mediaapp.dto.PersonPhotoDto;
+import com.mediaapp.dto.UpdatePersonRequest;
 import com.mediaapp.service.FaceRecognitionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -78,9 +79,12 @@ public class FaceController {
     public ResponseEntity<ApiResponse<LibraryScanResultDto>> scanLibraryPhoto(
             @PathVariable String personId,
             @RequestParam("image") MultipartFile image,
-            @RequestParam(required = false) String devicePhotoId) {
+            @RequestParam(required = false) String devicePhotoId,
+            @RequestParam(required = false, defaultValue = "PHOTO") String sourceType,
+            @RequestParam(required = false) Long sourceTimestampMs) {
         try {
-            LibraryScanResultDto result = faceRecognitionService.scanLibraryPhoto(personId, image, devicePhotoId);
+            LibraryScanResultDto result = faceRecognitionService.scanLibraryPhoto(
+                    personId, image, devicePhotoId, sourceType, sourceTimestampMs);
             return ResponseEntity.ok(ApiResponse.ok(result));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
@@ -92,6 +96,18 @@ public class FaceController {
         try {
             faceRecognitionService.deletePersonPhoto(photoId);
             return ResponseEntity.ok(ApiResponse.ok("Deleted", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        }
+    }
+
+    @PatchMapping("/{id}")
+    public ResponseEntity<ApiResponse<PersonDto>> update(
+            @PathVariable String id,
+            @RequestBody UpdatePersonRequest body) {
+        try {
+            return ResponseEntity.ok(ApiResponse.ok(
+                    faceRecognitionService.updatePerson(id, body.getName(), body.getNotes())));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
         }

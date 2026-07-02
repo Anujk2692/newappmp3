@@ -1,0 +1,9 @@
+# Release signing — copy to gradle.properties (DO NOT commit real passwords)
+# Generate keystore:
+#   keytool -genkeypair -v -storetype PKCS12 -keystore mediaface-release.keystore \
+#     -alias mediaface -keyalg RSA -keysize 2048 -validity 10000
+
+# MEDIAFACE_UPLOAD_STORE_FILE=mediaface-release.keystore
+# MEDIAFACE_UPLOAD_STORE_PASSWORD=your-store-password
+# MEDIAFACE_UPLOAD_KEY_ALIAS=mediaface
+# MEDIAFACE_UPLOAD_KEY_PASSWORD=your-key-password

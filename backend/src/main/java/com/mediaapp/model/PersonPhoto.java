@@ -25,4 +25,13 @@ public class PersonPhoto {
     private double confidence;
     private String devicePhotoId;
     private Instant matchedAt;
+    private String sourceType;
+    /** Milliseconds into video when matched (null for photos) */
+    private Long sourceTimestampMs;
+    /** How many faces were in the image/frame */
+    private Integer facesDetected;
+    /** True when multiple faces were present (group photo / crowd) */
+    private Boolean groupPhoto;
+    /** Which face index matched (0-based) */
+    private Integer matchedFaceIndex;
 }

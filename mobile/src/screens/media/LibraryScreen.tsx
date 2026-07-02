@@ -4,26 +4,33 @@ import {
   FlatList,
   RefreshControl,
   StyleSheet,
+  Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import {useFocusEffect, useNavigation} from '@react-navigation/native';
-import {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import Icon from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
+import {useFocusEffect} from '@react-navigation/native';
 import {MediaCard} from '../../components/MediaCard';
 import {EmptyState} from '../../components/EmptyState';
+import {MediaListSkeleton} from '../../components/Skeleton';
+import {usePlayback} from '../../context/PlaybackContext';
 import {api, MediaItem} from '../../api/client';
-import {COLORS} from '../../config';
-import {MediaStackParamList} from '../../navigation/types';
-
-type Nav = NativeStackNavigationProp<MediaStackParamList>;
+import {buildLibraryQueue} from '../../utils/playbackQueue';
+import {COLORS, RADIUS, SPACING} from '../../config';
+import {useLayoutMetrics} from '../../utils/layout';
 
 interface Props {
   type: 'AUDIO' | 'VIDEO';
 }
 
 export function LibraryScreen({type}: Props) {
-  const navigation = useNavigation<Nav>();
+  const layout = useLayoutMetrics(true);
+  const {playQueue, media, queueLength, repeatQueue, toggleRepeatQueue} = usePlayback();
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const isAudio = type === 'AUDIO';
+  const accent = isAudio ? COLORS.audio : COLORS.video;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,42 +84,78 @@ export function LibraryScreen({type}: Props) {
         keyExtractor={item => item.id}
         refreshControl={
           <RefreshControl
-            refreshing={loading}
+            refreshing={loading && items.length > 0}
             onRefresh={load}
-            tintColor={COLORS.primary}
+            tintColor={accent}
           />
+        }
+        ListHeaderComponent={
+          loading && items.length === 0 ? (
+            <MediaListSkeleton count={5} />
+          ) : (
+            <LinearGradient
+              colors={isAudio ? ['rgba(124,92,255,0.18)', 'transparent'] : ['rgba(255,107,157,0.18)', 'transparent']}
+              style={[styles.sectionHeader, {paddingHorizontal: layout.hPad}]}>
+              <View style={styles.sectionTop}>
+                <View style={styles.sectionTitles}>
+                  <View style={styles.titleRow}>
+                    <Icon name={isAudio ? 'musical-notes' : 'videocam'} size={20} color={accent} />
+                    <Text style={[styles.sectionTitle, {color: accent}]}>
+                      {isAudio ? 'My Music' : 'My Videos'}
+                    </Text>
+                  </View>
+                  <Text style={styles.sectionSub}>
+                    {items.length} saved · plays through automatically
+                  </Text>
+                </View>
+                {items.length > 1 ? (
+                  <TouchableOpacity
+                    style={[styles.repeatChip, repeatQueue && {borderColor: accent, backgroundColor: `${accent}22`}]}
+                    onPress={toggleRepeatQueue}>
+                    <Icon name="repeat" size={16} color={repeatQueue ? accent : COLORS.textMuted} />
+                    <Text style={[styles.repeatChipText, repeatQueue && {color: accent}]}>
+                      Repeat
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </LinearGradient>
+          )
         }
         ListEmptyComponent={
           !loading ? (
             <EmptyState
-              icon={type === 'AUDIO' ? 'musical-notes-outline' : 'videocam-outline'}
-              title={type === 'AUDIO' ? 'No downloaded songs' : 'No downloaded videos'}
+              icon={isAudio ? 'musical-notes-outline' : 'videocam-outline'}
+              title={isAudio ? 'No songs yet' : 'No videos yet'}
               subtitle={
-                type === 'AUDIO'
-                  ? 'Search and download MP3 files to see them here'
-                  : 'Search and download videos to see them here'
+                isAudio
+                  ? 'Search and save MP3s — they appear here for offline playback'
+                  : 'Search and save HD videos — watch anytime without internet'
               }
+              accentColor={accent}
             />
           ) : null
         }
-        renderItem={({item}) => (
+        renderItem={({item, index}) => (
           <MediaCard
             title={item.title}
             subtitle={item.quality}
             thumbnailUrl={item.thumbnailUrl}
             mode="library"
             type={item.type}
+            active={queueLength > 0 && media?.libraryId === item.id}
             onPlay={() => {
-              const parent = navigation.getParent<Nav>();
-              (parent ?? navigation).navigate('Player', {
-                item,
-                streamUrl: api.getStreamUrl(item.streamUrl),
-              });
+              const queue = buildLibraryQueue(items);
+              playQueue(queue, index);
             }}
             onDelete={() => handleDelete(item)}
           />
         )}
-        contentContainerStyle={items.length === 0 ? styles.emptyList : undefined}
+        contentContainerStyle={
+          items.length === 0
+            ? [styles.emptyList, {paddingBottom: layout.contentBottomPadWithPlayer}]
+            : [styles.list, {paddingBottom: layout.contentBottomPadWithPlayer}]
+        }
       />
     </View>
   );
@@ -123,7 +166,52 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  emptyList: {
-    flexGrow: 1,
+  sectionHeader: {
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.md,
+    marginBottom: SPACING.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  sectionTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+  },
+  sectionTitles: {
+    flex: 1,
+  },
+  sectionTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  sectionSub: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+    marginTop: 4,
+  },
+  repeatChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+  repeatChipText: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  list: {},
+  emptyList: {flexGrow: 1},
 });

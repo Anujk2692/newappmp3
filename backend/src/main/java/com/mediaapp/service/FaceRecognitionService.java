@@ -122,6 +122,19 @@ public class FaceRecognitionService {
                 .toList();
     }
 
+    public PersonDto updatePerson(String id, String name, String notes) {
+        Person person = personRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Person not found"));
+        if (name != null && !name.isBlank()) {
+            person.setName(name.trim());
+        }
+        if (notes != null) {
+            person.setNotes(notes.trim().isEmpty() ? null : notes.trim());
+        }
+        person.setUpdatedAt(Instant.now());
+        return toDto(personRepository.save(person), null);
+    }
+
     public FaceIdentifyResult identify(MultipartFile image) throws IOException {
         if (image == null || image.isEmpty()) {
             throw new IllegalArgumentException("Image is required");
@@ -219,8 +232,12 @@ public class FaceRecognitionService {
                 .toList();
     }
 
-    public LibraryScanResultDto scanLibraryPhoto(String personId, MultipartFile image, String devicePhotoId)
-            throws IOException {
+    public LibraryScanResultDto scanLibraryPhoto(
+            String personId,
+            MultipartFile image,
+            String devicePhotoId,
+            String sourceType,
+            Long sourceTimestampMs) throws IOException {
         Person person = personRepository.findById(personId)
                 .orElseThrow(() -> new IllegalArgumentException("Person not found"));
         if (image == null || image.isEmpty()) {
@@ -247,22 +264,35 @@ public class FaceRecognitionService {
         Files.write(temp, image.getBytes());
 
         try {
-            List<Mat> queryFeatures = faceAiEngine.extractAllFeatures(temp, true);
-            if (queryFeatures.isEmpty()) {
+            List<FaceFeatureDetail> faceDetails = faceAiEngine.extractAllFeatureDetails(temp, true);
+            if (faceDetails.isEmpty()) {
                 return LibraryScanResultDto.builder()
                         .devicePhotoId(devicePhotoId)
                         .matched(false)
                         .saved(false)
                         .confidence(0)
+                        .sourceType(sourceType)
+                        .sourceTimestampMs(sourceTimestampMs)
                         .build();
             }
 
             ensureEmbeddings(person);
             float personBest = -1f;
-            for (Mat queryFeature : queryFeatures) {
-                personBest = Math.max(personBest, FaceMatchHelper.scorePerson(queryFeature, person, faceAiEngine));
-                queryFeature.release();
+            FaceFeatureDetail bestDetail = null;
+            for (FaceFeatureDetail detail : faceDetails) {
+                float score = FaceMatchHelper.scorePerson(detail.getFeature(), person, faceAiEngine);
+                if (score > personBest) {
+                    personBest = score;
+                    bestDetail = detail;
+                }
             }
+            for (FaceFeatureDetail detail : faceDetails) {
+                detail.release();
+            }
+
+            int totalFaces = bestDetail != null ? bestDetail.getTotalFaces() : faceDetails.size();
+            boolean groupPhoto = totalFaces > 1;
+            int matchedFaceIndex = bestDetail != null ? bestDetail.getFaceIndex() : 0;
 
             float threshold = faceAiEngine.getMatchThreshold();
             boolean matched = personBest >= threshold;
@@ -273,6 +303,10 @@ public class FaceRecognitionService {
                         .matched(false)
                         .saved(false)
                         .confidence(Math.round(personBest * 1000.0) / 10.0)
+                        .facesDetected(totalFaces)
+                        .groupPhoto(groupPhoto)
+                        .sourceType(sourceType)
+                        .sourceTimestampMs(sourceTimestampMs)
                         .build();
             }
 
@@ -289,6 +323,11 @@ public class FaceRecognitionService {
                     .confidence(Math.round(personBest * 1000.0) / 10.0)
                     .devicePhotoId(devicePhotoId)
                     .matchedAt(Instant.now())
+                    .sourceType(sourceType != null ? sourceType : "PHOTO")
+                    .sourceTimestampMs(sourceTimestampMs)
+                    .facesDetected(totalFaces)
+                    .groupPhoto(groupPhoto)
+                    .matchedFaceIndex(matchedFaceIndex)
                     .build());
 
             return LibraryScanResultDto.builder()
@@ -297,6 +336,11 @@ public class FaceRecognitionService {
                     .saved(true)
                     .confidence(record.getConfidence())
                     .photoId(record.getId())
+                    .facesDetected(totalFaces)
+                    .groupPhoto(groupPhoto)
+                    .matchedFaceIndex(matchedFaceIndex)
+                    .sourceType(record.getSourceType())
+                    .sourceTimestampMs(sourceTimestampMs)
                     .build();
         } finally {
             Files.deleteIfExists(temp);
@@ -326,6 +370,12 @@ public class FaceRecognitionService {
                 .imageUrl(imageUrl)
                 .confidence(photo.getConfidence())
                 .matchedAt(photo.getMatchedAt() != null ? photo.getMatchedAt().toString() : null)
+                .devicePhotoId(photo.getDevicePhotoId())
+                .sourceType(photo.getSourceType())
+                .sourceTimestampMs(photo.getSourceTimestampMs())
+                .facesDetected(photo.getFacesDetected())
+                .groupPhoto(photo.getGroupPhoto())
+                .matchedFaceIndex(photo.getMatchedFaceIndex())
                 .build();
     }
 

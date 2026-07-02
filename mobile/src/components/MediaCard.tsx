@@ -8,8 +8,8 @@ import {
   View,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import LinearGradient from 'react-native-linear-gradient';
-import {COLORS, SPACING} from '../config';
+import {COLORS, RADIUS, SHADOW, SPACING} from '../config';
+import {useLayoutMetrics} from '../utils/layout';
 
 interface MediaCardProps {
   title: string;
@@ -27,6 +27,7 @@ interface MediaCardProps {
   playing?: 'AUDIO' | 'VIDEO' | null;
   mode?: 'search' | 'library';
   type?: 'AUDIO' | 'VIDEO';
+  active?: boolean;
 }
 
 function formatDuration(seconds?: number) {
@@ -54,13 +55,29 @@ export function MediaCard({
   playing,
   mode = 'search',
   type,
+  active = false,
 }: MediaCardProps) {
+  const layout = useLayoutMetrics(true);
+  const accent = type === 'VIDEO' ? COLORS.video : COLORS.audio;
+  const circle = layout.isCompact ? 40 : 46;
+  const iconSize = layout.isCompact ? 16 : 18;
   return (
-    <View style={styles.card}>
-      <View style={styles.main}>
-        <Image source={{uri: thumbnailUrl}} style={styles.thumbnail} />
-        <View style={styles.info}>
-          <Text style={styles.title} numberOfLines={2}>
+    <View style={[styles.card, SHADOW.sm, {marginHorizontal: layout.hPad}, active && styles.cardActive, active && {borderColor: accent}]}>
+      {active ? <View style={[styles.activeStrip, {backgroundColor: accent}]} /> : null}
+      <View style={[styles.main, {padding: layout.isCompact ? SPACING.sm : SPACING.md}]}>
+        <View style={[styles.thumbWrap, type === 'VIDEO' ? styles.thumbVideo : styles.thumbAudio]}>
+          <Image
+            source={{uri: thumbnailUrl}}
+            style={[styles.thumbnail, {width: layout.thumbSize, height: layout.thumbSize}]}
+          />
+          {mode === 'library' && (
+            <View style={[styles.typeDot, {backgroundColor: accent}]}>
+              <Icon name={type === 'VIDEO' ? 'videocam' : 'musical-notes'} size={10} color={COLORS.text} />
+            </View>
+          )}
+        </View>
+        <View style={[styles.info, {marginLeft: layout.isCompact ? SPACING.sm : SPACING.md}]}>
+          <Text style={[styles.title, {fontSize: layout.font.md}]} numberOfLines={2}>
             {title}
           </Text>
           {subtitle ? (
@@ -86,95 +103,73 @@ export function MediaCard({
           )}
           {type && mode === 'library' && (
             <View style={[styles.badge, type === 'AUDIO' ? styles.audioBadge : styles.videoBadge]}>
-              <Icon
-                name={type === 'AUDIO' ? 'musical-notes' : 'videocam'}
-                size={12}
-                color={COLORS.text}
-              />
-              <Text style={styles.badgeText}>{type === 'AUDIO' ? 'Audio' : 'Video'}</Text>
+              <Text style={styles.badgeText}>{type === 'AUDIO' ? 'MP3' : 'HD'}</Text>
             </View>
           )}
         </View>
       </View>
 
       {mode === 'search' && (
-        <>
-          <View style={styles.actions}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={onPlayAudio}
-              disabled={!!playing}>
-              <LinearGradient
-                colors={['#5B3FD9', COLORS.audio]}
-                style={styles.gradientBtn}>
-                {playing === 'AUDIO' ? (
-                  <ActivityIndicator color={COLORS.text} size="small" />
-                ) : (
-                  <>
-                    <Icon name="play" size={20} color={COLORS.text} />
-                    <Text style={styles.actionText}>Play Audio</Text>
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={onPlayVideo}
-              disabled={!!playing}>
-              <LinearGradient
-                colors={['#D94A7A', COLORS.video]}
-                style={styles.gradientBtn}>
-                {playing === 'VIDEO' ? (
-                  <ActivityIndicator color={COLORS.text} size="small" />
-                ) : (
-                  <>
-                    <Icon name="play-circle" size={20} color={COLORS.text} />
-                    <Text style={styles.actionText}>Play Video</Text>
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.actions}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={onDownloadAudio}
-              disabled={!!downloading}>
-              <View style={[styles.outlineBtn, styles.audioOutline]}>
-                {downloading === 'AUDIO' ? (
-                  <ActivityIndicator color={COLORS.audio} size="small" />
-                ) : (
-                  <>
-                    <Icon name="download-outline" size={20} color={COLORS.audio} />
-                    <Text style={[styles.actionText, styles.audioText]}>Download Audio</Text>
-                  </>
-                )}
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={onDownloadVideo}
-              disabled={!!downloading}>
-              <View style={[styles.outlineBtn, styles.videoOutline]}>
-                {downloading === 'VIDEO' ? (
-                  <ActivityIndicator color={COLORS.video} size="small" />
-                ) : (
-                  <>
-                    <Icon name="download-outline" size={20} color={COLORS.video} />
-                    <Text style={[styles.actionText, styles.videoText]}>Download Video</Text>
-                  </>
-                )}
-              </View>
-            </TouchableOpacity>
-          </View>
-        </>
+        <View style={[styles.iconActions, {paddingTop: layout.isCompact ? SPACING.sm : SPACING.md}]}>
+          <TouchableOpacity style={styles.iconAction} onPress={onPlayAudio} disabled={!!playing}>
+            {playing === 'AUDIO' ? (
+              <ActivityIndicator color={COLORS.audio} size="small" />
+            ) : (
+              <>
+                <View style={[styles.iconCircle, styles.audioCircle, {width: circle, height: circle, borderRadius: circle / 2}]}>
+                  <Icon name="play" size={iconSize} color={COLORS.text} />
+                </View>
+                <Text style={[styles.iconLabel, {fontSize: layout.font.xs}]}>Audio</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconAction} onPress={onPlayVideo} disabled={!!playing}>
+            {playing === 'VIDEO' ? (
+              <ActivityIndicator color={COLORS.video} size="small" />
+            ) : (
+              <>
+                <View style={[styles.iconCircle, styles.videoCircle, {width: circle, height: circle, borderRadius: circle / 2}]}>
+                  <Icon name="play-circle" size={iconSize} color={COLORS.text} />
+                </View>
+                <Text style={[styles.iconLabel, {fontSize: layout.font.xs}]}>Video</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconAction} onPress={onDownloadAudio} disabled={!!downloading}>
+            {downloading === 'AUDIO' ? (
+              <ActivityIndicator color={COLORS.audio} size="small" />
+            ) : (
+              <>
+                <View style={[styles.iconCircle, styles.audioOutlineCircle, {width: circle, height: circle, borderRadius: circle / 2}]}>
+                  <Icon name="download-outline" size={iconSize} color={COLORS.audio} />
+                </View>
+                <Text style={[styles.iconLabel, {fontSize: layout.font.xs, color: COLORS.audio}]}>Save</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconAction} onPress={onDownloadVideo} disabled={!!downloading}>
+            {downloading === 'VIDEO' ? (
+              <ActivityIndicator color={COLORS.video} size="small" />
+            ) : (
+              <>
+                <View style={[styles.iconCircle, styles.videoOutlineCircle, {width: circle, height: circle, borderRadius: circle / 2}]}>
+                  <Icon name="download-outline" size={iconSize} color={COLORS.video} />
+                </View>
+                <Text style={[styles.iconLabel, {fontSize: layout.font.xs, color: COLORS.video}]}>HD</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       )}
 
       {mode === 'library' && (
         <View style={styles.libraryFooter}>
-          <TouchableOpacity style={styles.playLibraryBtn} onPress={onPlay}>
-            <Icon name="play" size={16} color={COLORS.text} />
-            <Text style={styles.playLibraryText}>Play</Text>
+          <TouchableOpacity
+            style={[styles.playLibraryBtn, active && {backgroundColor: accent}]}
+            onPress={onPlay}
+            activeOpacity={0.85}>
+            <Icon name={active ? 'radio' : 'play'} size={16} color={COLORS.text} />
+            <Text style={styles.playLibraryText}>{active ? 'Now Playing' : 'Play'}</Text>
           </TouchableOpacity>
           {onDelete && (
             <TouchableOpacity style={styles.deleteLibraryBtn} onPress={onDelete}>
@@ -192,23 +187,52 @@ export {formatDuration};
 const styles = StyleSheet.create({
   card: {
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    marginHorizontal: SPACING.md,
+    borderRadius: RADIUS.lg,
     marginBottom: SPACING.md,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: COLORS.border,
+  },
+  cardActive: {
+    backgroundColor: 'rgba(124, 92, 255, 0.07)',
+  },
+  activeStrip: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
   },
   main: {
     flexDirection: 'row',
     padding: SPACING.md,
     alignItems: 'center',
   },
+  thumbWrap: {
+    borderRadius: RADIUS.md,
+    padding: 2,
+  },
+  thumbAudio: {
+    backgroundColor: 'rgba(124, 92, 255, 0.35)',
+  },
+  thumbVideo: {
+    backgroundColor: 'rgba(255, 107, 157, 0.35)',
+  },
   thumbnail: {
-    width: 72,
-    height: 72,
-    borderRadius: 12,
+    borderRadius: RADIUS.sm,
     backgroundColor: COLORS.surfaceLight,
+  },
+  typeDot: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.surface,
   },
   info: {
     flex: 1,
@@ -259,6 +283,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  iconActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.sm,
+    paddingBottom: SPACING.md,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  iconAction: {alignItems: 'center', flex: 1, minWidth: 0},
+  iconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  audioCircle: {backgroundColor: COLORS.audio},
+  videoCircle: {backgroundColor: COLORS.video},
+  audioOutlineCircle: {
+    backgroundColor: 'rgba(124, 92, 255, 0.15)',
+    borderWidth: 1.5,
+    borderColor: COLORS.audio,
+  },
+  videoOutlineCircle: {
+    backgroundColor: 'rgba(255, 107, 157, 0.15)',
+    borderWidth: 1.5,
+    borderColor: COLORS.video,
+  },
+  iconLabel: {color: COLORS.textSecondary, fontSize: 11, fontWeight: '700'},
   actions: {
     flexDirection: 'row',
     gap: SPACING.sm,
@@ -323,9 +377,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     backgroundColor: COLORS.primary,
-    paddingVertical: 16,
-    borderRadius: 14,
-    minHeight: 54,
+    paddingVertical: 14,
+    borderRadius: RADIUS.md,
+    minHeight: 48,
   },
   playLibraryText: {
     color: COLORS.text,
