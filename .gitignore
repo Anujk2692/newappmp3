@@ -3,6 +3,16 @@
 .env
 .env.*
 !.env.example
+cookies.txt
+cookies.b64.txt
+**/cookies.txt
+**/cookies.b64.txt
+*.webm
+*.mp4
+*.mkv
+*.part
+*.f[0-9]*.mp4
+*.f[0-9]*.webm
 
 # Backend
 backend/target/
