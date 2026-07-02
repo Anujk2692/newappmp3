@@ -52,7 +52,11 @@ export function SettingsScreen() {
             />
             <View style={styles.statusText}>
               <Text style={[styles.statusTitle, {color: colors.text}]}>
-                {serverOk === null ? 'Checking server…' : serverOk ? 'Backend connected' : 'Backend offline'}
+                {serverOk === null
+                  ? 'Checking server…'
+                  : serverOk
+                    ? 'Cloud server connected'
+                    : 'Server unreachable'}
                 {isProductionMode() ? ' · Live' : ' · Dev'}
               </Text>
               <Text style={[styles.statusUrl, {color: colors.textMuted}]} numberOfLines={1}>

@@ -1,8 +1,11 @@
 import {getApiBaseUrl, getApiKey, getServerCandidates, isProductionMode, setApiBaseUrl} from '../config';
 import {normalizeFaceImage} from '../utils/imageUpload';
 import {
+  connectionErrorHint,
   isReachableHealthStatus,
   loadCachedApiUrl,
+  networkErrorMessage,
+  requestTimeoutMessage,
   saveCachedApiUrl,
 } from '../utils/serverConnection';
 
@@ -211,7 +214,7 @@ async function request<T>(
       throw new Error(
         response.ok
           ? 'Invalid server response'
-          : `Server error (${response.status}). Is backend running?`,
+          : `Server error (${response.status}). ${connectionErrorHint()}`,
       );
     }
 
@@ -222,12 +225,10 @@ async function request<T>(
   } catch (error) {
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
-        throw new Error('Request timed out. Check backend connection.');
+        throw new Error(requestTimeoutMessage());
       }
       if (error.message === 'Network request failed') {
-        throw new Error(
-          `Cannot reach server at ${base}. Same Wi‑Fi? Allow Local Network in Settings.`,
-        );
+        throw new Error(networkErrorMessage(base));
       }
     }
     throw error;
@@ -237,7 +238,12 @@ async function request<T>(
 }
 
 export const api = {
-  health: () => request<{status: string; app: string}>('/api/health', {}, 8000),
+  health: () =>
+    request<{status: string; app: string}>(
+      '/api/health',
+      {},
+      isProductionMode() ? 120000 : 8000,
+    ),
 
   searchMedia: (q: string) =>
     request<MediaSearchResult[]>(

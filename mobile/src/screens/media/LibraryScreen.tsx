@@ -18,6 +18,7 @@ import {usePlayback} from '../../context/PlaybackContext';
 import {api, MediaItem} from '../../api/client';
 import {buildLibraryQueue} from '../../utils/playbackQueue';
 import {COLORS, RADIUS, SPACING} from '../../config';
+import {connectionErrorHint} from '../../utils/serverConnection';
 import {useLayoutMetrics} from '../../utils/layout';
 
 interface Props {
@@ -43,7 +44,7 @@ export function LibraryScreen({type}: Props) {
         setItems(response.data || []);
       }
     } catch {
-      Alert.alert('Error', 'Could not load library. Is backend running?');
+      Alert.alert('Error', connectionErrorHint());
     } finally {
       setLoading(false);
     }

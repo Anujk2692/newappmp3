@@ -18,6 +18,7 @@ import {MediaListSkeleton} from '../../components/Skeleton';
 import {usePlayback} from '../../context/PlaybackContext';
 import {api, MediaSearchResult, PlayableMedia} from '../../api/client';
 import {COLORS, RADIUS, SPACING} from '../../config';
+import {connectionErrorHint} from '../../utils/serverConnection';
 import {consumePendingSearchQuery} from '../../utils/searchIntent';
 import {useLayoutMetrics} from '../../utils/layout';
 
@@ -52,7 +53,7 @@ export function SearchScreen() {
         Alert.alert('Search failed', response.message || 'Try again');
       }
     } catch {
-      Alert.alert('Connection error', 'Make sure backend is running on port 8080');
+      Alert.alert('Connection error', connectionErrorHint());
     } finally {
       setLoading(false);
     }
