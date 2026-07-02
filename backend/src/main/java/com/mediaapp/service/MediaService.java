@@ -145,7 +145,7 @@ public class MediaService {
     public Optional<ResponseEntity<Resource>> tryServeDirectStream(
             String videoId, MediaType type, String rangeHeader) {
         try {
-            String directUrl = resolveDirectUrl(videoId, type);
+            String directUrl = resolveDirectUrl(videoId, type, false);
             warmCacheAsync(videoId, type);
             return Optional.of(proxyHttpStream(directUrl, rangeHeader, getStreamContentType(type)));
         } catch (Exception e) {
@@ -183,7 +183,7 @@ public class MediaService {
         }
 
         try {
-            String directUrl = resolveDirectUrl(videoId, type);
+            String directUrl = resolveDirectUrl(videoId, type, false);
             HttpURLConnection conn = openDirectConnection(directUrl, null);
             try (InputStream in = conn.getInputStream()) {
                 in.transferTo(outputStream);
@@ -212,14 +212,19 @@ public class MediaService {
 
     public String resolveDirectUrlForClient(String videoId, MediaType type)
             throws IOException, InterruptedException {
-        return resolveDirectUrl(videoId, type);
+        return resolveDirectUrl(videoId, type, false);
+    }
+
+    public String resolveDirectUrlFastForClient(String videoId, MediaType type)
+            throws IOException, InterruptedException {
+        return resolveDirectUrl(videoId, type, true);
     }
 
     public String videoQualityLabelPublic() {
         return videoQualityLabel();
     }
 
-    private String resolveDirectUrl(String videoId, MediaType type)
+    private String resolveDirectUrl(String videoId, MediaType type, boolean fast)
             throws IOException, InterruptedException {
         String key = videoId + ":" + type.name();
         DirectUrlEntry cached = directUrlCache.get(key);
@@ -237,8 +242,12 @@ public class MediaService {
             YtDlpService.MediaTypeArg arg = type == MediaType.AUDIO
                     ? YtDlpService.MediaTypeArg.AUDIO
                     : YtDlpService.MediaTypeArg.VIDEO;
-            String url = ytDlpService.resolveDirectUrl(
-                    buildSourceUrl(videoId), arg, directUrlTimeoutSeconds);
+            int timeout = fast
+                    ? Math.min(directUrlTimeoutSeconds, 20)
+                    : directUrlTimeoutSeconds;
+            String url = fast
+                    ? ytDlpService.resolveDirectUrlFast(buildSourceUrl(videoId), arg, timeout)
+                    : ytDlpService.resolveDirectUrl(buildSourceUrl(videoId), arg, timeout);
 
             directUrlCache.put(key, new DirectUrlEntry(url, Instant.now().plus(Duration.ofMinutes(45))));
             return url;
@@ -306,21 +315,7 @@ public class MediaService {
                         .build();
             }
 
-            try {
-                String directUrl = resolveDirectUrl(videoId, type);
-                warmCacheAsync(videoId, type);
-                return PlayUrlDto.builder()
-                        .videoId(videoId)
-                        .type(type)
-                        .streamUrl(directUrl)
-                        .contentType(getStreamContentType(type))
-                        .quality(type == MediaType.AUDIO ? "Streaming Audio" : "Streaming Video")
-                        .cached(false)
-                        .build();
-            } catch (Exception directEx) {
-                log.warn("Direct CDN URL unavailable for {} {}: {}", videoId, type, directEx.getMessage());
-            }
-
+            // Return immediately — client polls /prepare; avoids blocking on yt-dlp here.
             return PlayUrlDto.builder()
                     .videoId(videoId)
                     .type(type)

@@ -6,6 +6,7 @@ import {BackendGate} from './src/components/BackendGate';
 import {ErrorBoundary} from './src/components/ErrorBoundary';
 import {PlaybackProvider} from './src/context/PlaybackContext';
 import {ThemeProvider, useTheme} from './src/context/ThemeContext';
+import {FeatureFlagsProvider} from './src/core/features/FeatureFlagsProvider';
 
 function AppShell() {
   const {colors} = useTheme();
@@ -26,7 +27,9 @@ function App() {
     <ErrorBoundary>
       <SafeAreaProvider>
         <ThemeProvider>
-          <AppShell />
+          <FeatureFlagsProvider>
+            <AppShell />
+          </FeatureFlagsProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </ErrorBoundary>

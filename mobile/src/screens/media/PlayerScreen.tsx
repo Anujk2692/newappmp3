@@ -244,10 +244,10 @@ export function PlayerScreen({route, navigation}: Props) {
     playInBackground: true,
     playWhenInactive: true,
     bufferConfig: {
-      minBufferMs: 1500,
-      maxBufferMs: 8000,
-      bufferForPlaybackMs: 400,
-      bufferForPlaybackAfterRebufferMs: 800,
+      minBufferMs: 800,
+      maxBufferMs: 12000,
+      bufferForPlaybackMs: 250,
+      bufferForPlaybackAfterRebufferMs: 500,
     },
   };
 
@@ -486,7 +486,10 @@ export function PlayerScreen({route, navigation}: Props) {
         ? 'Video'
         : 'Audio';
 
-  const videoSource = buildMediaSource(streamUrl, isVideo ? 'VIDEO' : 'AUDIO');
+  const streamReady = !!streamUrl && streamUrl.length > 0;
+  const videoSource = streamReady
+    ? buildMediaSource(streamUrl, isVideo ? 'VIDEO' : 'AUDIO')
+    : null;
 
   const videoWidth = layout.contentW;
   const videoHeight = layout.videoStageHeight;
@@ -553,6 +556,7 @@ export function PlayerScreen({route, navigation}: Props) {
             <Pressable
               style={[styles.videoStage, {width: videoWidth, height: videoHeight}]}
               onPress={toggleInlineControls}>
+              {streamReady && videoSource ? (
               <Video
                 ref={videoRef}
                 key={streamKey}
@@ -573,6 +577,12 @@ export function PlayerScreen({route, navigation}: Props) {
                 }}
                 onEnd={handleTrackEnd}
               />
+              ) : (
+                <View style={styles.videoLoader}>
+                  <ActivityIndicator size="large" color={COLORS.video} />
+                  <Text style={styles.tapHintText}>Loading stream…</Text>
+                </View>
+              )}
               {buffering && (
                 <View style={styles.videoLoader}>
                   <ActivityIndicator size="small" color={COLORS.video} />
@@ -669,6 +679,7 @@ export function PlayerScreen({route, navigation}: Props) {
               )}
             </View>
             <View style={styles.glassCard}>
+              {streamReady && videoSource ? (
               <Video
                 ref={videoRef}
                 key={streamKey}
@@ -688,6 +699,7 @@ export function PlayerScreen({route, navigation}: Props) {
                 }}
                 onEnd={handleTrackEnd}
               />
+              ) : null}
               <PlayerControls
                 currentTime={currentTime}
                 duration={duration}
@@ -789,6 +801,7 @@ export function PlayerScreen({route, navigation}: Props) {
           <StatusBar hidden />
           <View style={styles.fullscreenRoot}>
             <Pressable style={styles.fullscreenTapArea} onPress={toggleFullscreenControls}>
+              {streamReady && videoSource ? (
               <Video
                 ref={fullscreenVideoRef}
                 source={videoSource}
@@ -811,6 +824,11 @@ export function PlayerScreen({route, navigation}: Props) {
                 }}
                 onEnd={handleTrackEnd}
               />
+              ) : (
+                <View style={styles.fullscreenLoader}>
+                  <ActivityIndicator size="large" color={COLORS.video} />
+                </View>
+              )}
               {buffering && (
                 <View style={styles.fullscreenLoader}>
                   <ActivityIndicator size="large" color={COLORS.video} />

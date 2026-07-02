@@ -44,7 +44,7 @@ const TRENDING = [
 export function HomeScreen() {
   const {colors} = useTheme();
   const layout = useLayoutMetrics(true);
-  const {media, streamUrl, paused, togglePause, play} = usePlayback();
+  const {media, streamUrl, paused, togglePause, play, beginPlayback, attachStreamUrl} = usePlayback();
   const [savedItems, setSavedItems] = useState<MediaItem[]>([]);
   const [recentItems, setRecentItems] = useState<RecentMediaEntry[]>([]);
   const [peopleCount, setPeopleCount] = useState(0);
@@ -106,7 +106,7 @@ export function HomeScreen() {
           sourceUrl: sourceUrl || `https://www.youtube.com/watch?v=${videoId}`,
         },
         type,
-        play,
+        {beginPlayback, attachStreamUrl},
       );
       return;
     }

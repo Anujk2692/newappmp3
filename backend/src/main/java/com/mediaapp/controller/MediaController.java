@@ -6,6 +6,7 @@ import com.mediaapp.model.MediaType;
 import com.mediaapp.service.MediaCacheService;
 import com.mediaapp.service.MediaDiagnosticsService;
 import com.mediaapp.service.MediaService;
+import com.mediaapp.shared.features.FeatureFlagsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
@@ -27,16 +28,14 @@ public class MediaController {
     private final MediaService mediaService;
     private final MediaCacheService mediaCacheService;
     private final MediaDiagnosticsService mediaDiagnosticsService;
+    private final FeatureFlagsService featureFlagsService;
 
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<List<MediaSearchResultDto>>> search(
             @RequestParam String q,
             @RequestParam(defaultValue = "15") int limit) {
-        try {
-            return ResponseEntity.ok(ApiResponse.ok(mediaService.search(q, limit)));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
-        }
+        featureFlagsService.requireEnabled("mediaSearch");
+        return ResponseEntity.ok(ApiResponse.ok(mediaService.search(q, limit)));
     }
 
     @GetMapping("/stream-info")
@@ -112,17 +111,14 @@ public class MediaController {
 
     @PostMapping("/download")
     public ResponseEntity<ApiResponse<MediaItemDto>> download(@RequestBody DownloadRequest request) {
-        try {
-            MediaItem item = mediaService.download(
-                    request.getVideoId(),
-                    request.getTitle(),
-                    request.getSourceUrl(),
-                    request.getType()
-            );
-            return ResponseEntity.ok(ApiResponse.ok("Download complete", toDto(item)));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
-        }
+        featureFlagsService.requireEnabled("mediaDownload");
+        MediaItem item = mediaService.download(
+                request.getVideoId(),
+                request.getTitle(),
+                request.getSourceUrl(),
+                request.getType()
+        );
+        return ResponseEntity.ok(ApiResponse.ok("Download complete", toDto(item)));
     }
 
     @GetMapping("/library/audio")

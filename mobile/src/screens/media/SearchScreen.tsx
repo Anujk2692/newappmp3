@@ -1,8 +1,7 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useState} from 'react';
 import {
   Alert,
   FlatList,
-  Modal,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -17,17 +16,12 @@ import {MediaCard, formatDuration} from '../../components/MediaCard';
 import {EmptyState} from '../../components/EmptyState';
 import {MediaListSkeleton} from '../../components/Skeleton';
 import {usePlayback} from '../../context/PlaybackContext';
-import {api, MediaSearchResult} from '../../api/client';
 import {COLORS, RADIUS, SPACING} from '../../config';
 import {ENTERPRISE} from '../../theme/enterprise';
-import {connectionErrorHint} from '../../utils/serverConnection';
-import {
-  prepareAndStartPlayback,
-  saveSearchItemToDevice,
-  showDownloadError,
-  showPlaybackError,
-} from '../../utils/playSearchItem';
-import {getCachedSearch, setCachedSearch} from '../../utils/searchCache';
+import {useFeatureFlag} from '../../core/features/FeatureFlagsProvider';
+import type {MediaSearchResult} from '../../features/media/domain/types';
+import {useMediaSearch} from '../../features/media/hooks/useMediaSearch';
+import {prepareAndStartPlayback, saveSearchItemToDevice, showDownloadError} from '../../features/media/services/PlaybackOrchestrator';
 import {consumePendingSearchQuery} from '../../utils/searchIntent';
 import {useLayoutMetrics} from '../../utils/layout';
 import {enterpriseStyles} from '../../theme/enterprise';
@@ -42,71 +36,13 @@ const QUICK_SEARCHES = [
 ];
 
 export function SearchScreen() {
-  const {play: startPlayback} = usePlayback();
+  const playback = usePlayback();
   const layout = useLayoutMetrics(true);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<MediaSearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
+  const mediaSearchEnabled = useFeatureFlag('mediaSearch');
+  const mediaDownloadEnabled = useFeatureFlag('mediaDownload');
+  const {query, setQuery, results, loading, search} = useMediaSearch();
   const [downloading, setDownloading] = useState<Record<string, 'AUDIO' | 'VIDEO'>>({});
   const [playing, setPlaying] = useState<Record<string, 'AUDIO' | 'VIDEO'>>({});
-  const [preparing, setPreparing] = useState<{title: string; message: string} | null>(null);
-  const searchAbortRef = useRef<AbortController | null>(null);
-  const searchSeqRef = useRef(0);
-
-  const handleSearch = useCallback(async (searchQuery?: string) => {
-    const q = (searchQuery ?? query).trim();
-    if (!q || q.length < 2) {
-      return;
-    }
-
-    const cached = getCachedSearch<MediaSearchResult[]>(q);
-    if (cached) {
-      setResults(cached);
-      return;
-    }
-
-    searchAbortRef.current?.abort();
-    const controller = new AbortController();
-    searchAbortRef.current = controller;
-    const seq = ++searchSeqRef.current;
-
-    setLoading(true);
-    try {
-      const response = await api.searchMedia(q, controller.signal);
-      if (seq !== searchSeqRef.current) {
-        return;
-      }
-      if (response.success) {
-        const data = response.data || [];
-        setResults(data);
-        setCachedSearch(q, data);
-      } else {
-        Alert.alert('Search failed', response.message || 'Try again');
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        return;
-      }
-      if (seq === searchSeqRef.current) {
-        Alert.alert('Connection error', connectionErrorHint());
-      }
-    } finally {
-      if (seq === searchSeqRef.current) {
-        setLoading(false);
-      }
-    }
-  }, [query]);
-
-  useEffect(() => {
-    if (query.trim().length < 2) {
-      setResults([]);
-      return;
-    }
-    const timer = setTimeout(() => {
-      handleSearch(query);
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [query, handleSearch]);
 
   useFocusEffect(
     useCallback(() => {
@@ -114,27 +50,20 @@ export function SearchScreen() {
       if (pending) {
         setQuery(pending);
       }
-    }, []),
+    }, [setQuery]),
   );
 
   const handlePlay = async (item: MediaSearchResult, type: 'AUDIO' | 'VIDEO') => {
+    if (!mediaSearchEnabled) {
+      Alert.alert('Unavailable', 'Media search is disabled on this server.');
+      return;
+    }
     setPlaying(prev => ({...prev, [item.videoId]: type}));
-    setPreparing({
-      title: item.title,
-      message: type === 'AUDIO' ? 'Starting audio…' : 'Starting video…',
-    });
     try {
-      await prepareAndStartPlayback(item, type, startPlayback, message => {
-        if (message) {
-          setPreparing(prev =>
-            prev ? {...prev, message} : {title: item.title, message},
-          );
-        }
-      });
-    } catch (e) {
-      showPlaybackError(e);
+      await prepareAndStartPlayback(item, type, playback);
+    } catch {
+      // error alert shown in prepareAndStartPlayback
     } finally {
-      setPreparing(null);
       setPlaying(prev => {
         const next = {...prev};
         delete next[item.videoId];
@@ -144,6 +73,10 @@ export function SearchScreen() {
   };
 
   const handleDownload = async (item: MediaSearchResult, type: 'AUDIO' | 'VIDEO') => {
+    if (!mediaDownloadEnabled) {
+      Alert.alert('Unavailable', 'Downloads are disabled on this server.');
+      return;
+    }
     setDownloading(prev => ({...prev, [item.videoId]: type}));
     try {
       await saveSearchItemToDevice(item, type);
@@ -169,7 +102,7 @@ export function SearchScreen() {
       <SearchBar
         value={query}
         onChangeText={setQuery}
-        onSearch={() => handleSearch()}
+        onSearch={() => search()}
         loading={loading}
         placeholder="Search any song, artist, music video..."
       />
@@ -193,7 +126,7 @@ export function SearchScreen() {
         data={results}
         keyExtractor={item => item.videoId}
         refreshControl={
-          <RefreshControl refreshing={loading && results.length > 0} onRefresh={() => handleSearch()} tintColor={COLORS.primary} />
+          <RefreshControl refreshing={loading && results.length > 0} onRefresh={() => search()} tintColor={COLORS.primary} />
         }
         ListHeaderComponent={
           loading && results.length === 0 ? <MediaListSkeleton count={6} /> : null
@@ -236,19 +169,6 @@ export function SearchScreen() {
         }
       />
 
-      <Modal visible={!!preparing} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, {maxWidth: layout.modalMaxWidth}]}>
-            <Icon name="hourglass-outline" size={36} color={COLORS.primary} />
-            <Text style={[styles.modalTitle, {fontSize: layout.font.lg}]} numberOfLines={2}>
-              {preparing?.title}
-            </Text>
-            <Text style={[styles.modalSub, {fontSize: layout.font.sm, lineHeight: layout.font.lineMd}]}>
-              {preparing?.message}
-            </Text>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -271,23 +191,4 @@ const styles = StyleSheet.create({
   chipText: {color: '#E3E6E6', fontWeight: '700', fontSize: 13},
   list: {},
   emptyList: {flexGrow: 1},
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: SPACING.lg,
-  },
-  modalCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: SPACING.xl,
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 280,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  modalTitle: {color: COLORS.text, fontSize: 18, fontWeight: '700', marginTop: SPACING.md},
-  modalSub: {color: COLORS.textSecondary, marginTop: SPACING.xs, textAlign: 'center'},
 });

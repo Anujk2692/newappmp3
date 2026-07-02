@@ -83,17 +83,18 @@ public class MediaCacheService {
     private void runPrepare(String key, String videoId, MediaType type) {
         try {
             try {
+                String directUrl = mediaService.resolveDirectUrlFastForClient(videoId, type);
+                mediaService.warmCacheAsync(videoId, type);
+                jobs.put(key, readyDirectDto(videoId, type, directUrl));
+                return;
+            } catch (Exception fastEx) {
+                log.debug("Fast direct URL unavailable for {} {}: {}", videoId, type, fastEx.getMessage());
+            }
+
+            try {
                 String directUrl = mediaService.resolveDirectUrlForClient(videoId, type);
                 mediaService.warmCacheAsync(videoId, type);
-                jobs.put(key, PrepareStatusDto.builder()
-                        .videoId(videoId)
-                        .type(type)
-                        .status(PrepareStatusDto.Status.READY)
-                        .streamUrl(directUrl)
-                        .contentType(mediaService.getStreamContentType(type))
-                        .quality(type == MediaType.AUDIO ? "Streaming Audio" : "Streaming Video")
-                        .message("Direct stream")
-                        .build());
+                jobs.put(key, readyDirectDto(videoId, type, directUrl));
                 return;
             } catch (Exception directEx) {
                 log.info("Direct URL unavailable for {} {}, caching file: {}", videoId, type, directEx.getMessage());
@@ -107,6 +108,18 @@ public class MediaCacheService {
         } finally {
             jobStartedAt.remove(key);
         }
+    }
+
+    private PrepareStatusDto readyDirectDto(String videoId, MediaType type, String directUrl) {
+        return PrepareStatusDto.builder()
+                .videoId(videoId)
+                .type(type)
+                .status(PrepareStatusDto.Status.READY)
+                .streamUrl(directUrl)
+                .contentType(mediaService.getStreamContentType(type))
+                .quality(type == MediaType.AUDIO ? "Streaming Audio" : "Streaming Video")
+                .message("Direct stream")
+                .build();
     }
 
     private PrepareStatusDto withElapsedMessage(PrepareStatusDto dto, long startedAt) {

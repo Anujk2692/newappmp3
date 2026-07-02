@@ -37,3 +37,12 @@ app:
   security:
     api-key: ${API_KEY:}
     require-api-key: false
+  features:
+    media-search: ${FEATURE_MEDIA_SEARCH:true}
+    media-download: ${FEATURE_MEDIA_DOWNLOAD:true}
+    media-offline-cache: ${FEATURE_MEDIA_OFFLINE_CACHE:true}
+    face-ai: ${FEATURE_FACE_AI:true}
+    face-library-scan: ${FEATURE_FACE_LIBRARY_SCAN:true}
+    camera-capture: ${FEATURE_CAMERA_CAPTURE:true}
+    camera-geotag: ${FEATURE_CAMERA_GEOTAG:true}
+    device-storage: ${FEATURE_DEVICE_STORAGE:true}

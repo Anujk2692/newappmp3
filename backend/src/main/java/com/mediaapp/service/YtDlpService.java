@@ -237,11 +237,30 @@ public class YtDlpService {
 
     public String resolveDirectUrl(String sourceUrl, MediaTypeArg type, int timeoutSeconds)
             throws IOException, InterruptedException {
+        return resolveDirectUrl(sourceUrl, type, timeoutSeconds, EXTRACTOR_PROFILES);
+    }
+
+    /** Fast path for playback — fewer profiles, shorter wait. */
+    public String resolveDirectUrlFast(String sourceUrl, MediaTypeArg type, int timeoutSeconds)
+            throws IOException, InterruptedException {
+        String[] fastProfiles = {
+                EXTRACTOR_PROFILES[0],
+                EXTRACTOR_PROFILES[1],
+        };
+        return resolveDirectUrl(sourceUrl, type, timeoutSeconds, fastProfiles);
+    }
+
+    private String resolveDirectUrl(
+            String sourceUrl,
+            MediaTypeArg type,
+            int timeoutSeconds,
+            String[] profiles)
+            throws IOException, InterruptedException {
         String format = type == MediaTypeArg.AUDIO
                 ? "140/bestaudio[ext=m4a]/bestaudio/best"
                 : "18/best[height<=480][ext=mp4][vcodec^=avc1]/best[ext=mp4]/best";
 
-        for (String profile : EXTRACTOR_PROFILES) {
+        for (String profile : profiles) {
             List<String> cmd = new ArrayList<>();
             cmd.add(ytDlpPath);
             cmd.add(sourceUrl);

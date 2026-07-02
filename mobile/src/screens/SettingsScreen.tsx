@@ -17,6 +17,7 @@ import {clearCachedApiUrl} from '../utils/serverConnection';
 import {THEME_LIST, ThemeId} from '../theme/themes';
 import {openGuide, goToCameraTab, goToFacesTab, goToMediaTab} from '../navigation/navigationRef';
 import {useLayoutMetrics} from '../utils/layout';
+import {useFeatureFlags} from '../core/features/FeatureFlagsProvider';
 import {formatBytes, getLocalStorageStats} from '../utils/localMediaStore';
 
 export function SettingsScreen() {
@@ -27,7 +28,19 @@ export function SettingsScreen() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [media, setMedia] = useState<MediaDiagnostics | null>(null);
   const [deviceStorage, setDeviceStorage] = useState<{fileCount: number; totalBytes: number} | null>(null);
+  const {flags: featureFlags, loaded: featuresLoaded} = useFeatureFlags();
   const [retrying, setRetrying] = useState(false);
+
+  const featureLabels: Record<string, string> = {
+    mediaSearch: 'Media search',
+    mediaDownload: 'Media download',
+    mediaOfflineCache: 'Offline cache',
+    faceAi: 'Face AI',
+    faceLibraryScan: 'Face library scan',
+    cameraCapture: 'Camera capture',
+    cameraGeotag: 'Camera geotag',
+    deviceStorage: 'Device storage',
+  };
 
   const refreshServer = useCallback(async (clearCache = false) => {
     setServerOk(null);
@@ -174,6 +187,23 @@ export function SettingsScreen() {
               <Text style={[styles.statusHint, {color: colors.textMuted}]}>
                 Downloads are stored in app internal storage for offline playback without internet.
               </Text>
+            </View>
+          </>
+        ) : null}
+
+        {featuresLoaded ? (
+          <>
+            <Text style={[styles.sectionTitle, {color: '#fff'}]}>Platform features</Text>
+            <View style={styles.statusCard}>
+              {Object.entries(featureFlags).map(([key, enabled]) => (
+                <MediaStatusRow
+                  key={key}
+                  label={featureLabels[key] || key}
+                  value={enabled ? 'Enabled' : 'Disabled'}
+                  ok={enabled}
+                  warn={!enabled}
+                />
+              ))}
             </View>
           </>
         ) : null}

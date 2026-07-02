@@ -1,10 +1,7 @@
 import {Alert} from 'react-native';
-import {
-  api,
-  discoverMediaServer,
-  MediaSearchResult,
-  PlayableMedia,
-} from '../api/client';
+import {ensureMediaServer} from '../core/api/httpClient';
+import {mediaApi} from '../features/media/api/mediaApi';
+import type {MediaSearchResult, PlayableMedia} from '../features/media/domain/types';
 import {getApiBaseUrl} from '../config';
 import {openPlayerScreen} from '../navigation/navigationRef';
 import {
@@ -15,18 +12,56 @@ import {
 } from './localMediaStore';
 import {resolveStreamUrl} from './mediaPlayback';
 
+const SESSION_STREAM_TTL_MS = 30 * 60 * 1000;
+const sessionStreamCache = new Map<
+  string,
+  {streamPath: string; quality?: string; expiresAt: number}
+>();
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function pollDelay(attempt: number): number {
-  if (attempt < 4) {
-    return 800;
+  if (attempt < 12) {
+    return 300;
   }
-  if (attempt < 10) {
-    return 1500;
+  if (attempt < 24) {
+    return 600;
   }
-  return 3000;
+  if (attempt < 40) {
+    return 1000;
+  }
+  return 2000;
+}
+
+function sessionKey(videoId: string, type: 'AUDIO' | 'VIDEO'): string {
+  return `${type}:${videoId}`;
+}
+
+function getSessionStream(
+  videoId: string,
+  type: 'AUDIO' | 'VIDEO',
+): {streamPath: string; quality?: string} | null {
+  const hit = sessionStreamCache.get(sessionKey(videoId, type));
+  if (!hit || Date.now() > hit.expiresAt) {
+    sessionStreamCache.delete(sessionKey(videoId, type));
+    return null;
+  }
+  return hit;
+}
+
+function putSessionStream(
+  videoId: string,
+  type: 'AUDIO' | 'VIDEO',
+  streamPath: string,
+  quality?: string,
+): void {
+  sessionStreamCache.set(sessionKey(videoId, type), {
+    streamPath,
+    quality,
+    expiresAt: Date.now() + SESSION_STREAM_TTL_MS,
+  });
 }
 
 function isBrokenPipeUrl(url: string): boolean {
@@ -60,38 +95,62 @@ function mediaServerHint(): string {
   return 'Cloud cannot download from YouTube without cookies. Start Mac backend on same Wi‑Fi, or set YOUTUBE_COOKIES_BASE64 on Render.';
 }
 
-/** Fast playback: device file → server play URL → prepare poll. */
+async function tryFastPlayUrl(
+  videoId: string,
+  type: 'AUDIO' | 'VIDEO',
+): Promise<{streamPath: string; quality?: string} | null> {
+  try {
+    const play = await mediaApi.preparePlayUrl(videoId, type);
+    if (play.success && play.data?.streamUrl && isPlayablePath(play.data.streamUrl)) {
+      return {streamPath: play.data.streamUrl, quality: play.data.quality};
+    }
+  } catch {
+    // fall through to prepare poll
+  }
+  return null;
+}
+
+/** Fast playback: session cache → device file → server cache → prepare poll. */
 export async function waitForMediaReady(
   videoId: string,
   type: 'AUDIO' | 'VIDEO',
   onStatus?: (message?: string) => void,
 ): Promise<{streamPath: string; quality?: string}> {
+  const cachedSession = getSessionStream(videoId, type);
+  if (cachedSession) {
+    onStatus?.('Resuming stream…');
+    return cachedSession;
+  }
+
   const localUri = await getLocalPlaybackUri(videoId, type);
   if (localUri) {
     onStatus?.('Playing from device storage…');
+    putSessionStream(videoId, type, localUri, 'On device · Offline');
     return {streamPath: localUri, quality: 'On device · Offline'};
   }
 
-  await discoverMediaServer();
-  onStatus?.('Connecting…');
+  await ensureMediaServer();
+  onStatus?.('Starting stream…');
 
-  try {
-    const play = await api.preparePlayUrl(videoId, type);
-    if (play.success && play.data?.streamUrl) {
-      const path = play.data.streamUrl;
-      if (path.includes('/api/media/prepare/')) {
-        onStatus?.('Preparing stream…');
-      } else if (isPlayablePath(path)) {
-        onStatus?.(play.data.cached ? 'Cached on server…' : 'Starting stream…');
-        return {streamPath: path, quality: play.data.quality};
-      }
-    }
-  } catch {
-    onStatus?.('Preparing stream…');
+  const fastPlayPromise = tryFastPlayUrl(videoId, type);
+  const pollPromise = pollPrepareUntilReady(videoId, type, onStatus);
+
+  const fastPlay = await fastPlayPromise;
+  if (fastPlay) {
+    putSessionStream(videoId, type, fastPlay.streamPath, fastPlay.quality);
+    return fastPlay;
   }
 
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    const status = await api.prepareMedia(videoId, type);
+  return pollPromise;
+}
+
+async function pollPrepareUntilReady(
+  videoId: string,
+  type: 'AUDIO' | 'VIDEO',
+  onStatus?: (message?: string) => void,
+): Promise<{streamPath: string; quality?: string}> {
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    const status = await mediaApi.prepare(videoId, type);
     if (!status.success || !status.data) {
       throw new Error(status.message || 'Could not prepare media');
     }
@@ -103,40 +162,58 @@ export async function waitForMediaReady(
     }
 
     if (data.status === 'PREPARING') {
-      onStatus?.(data.message || 'Downloading for playback…');
+      onStatus?.(data.message || 'Buffering…');
     }
 
     if (data.status === 'READY' && data.streamUrl && isPlayablePath(data.streamUrl)) {
+      putSessionStream(videoId, type, data.streamUrl, data.quality);
       return {streamPath: data.streamUrl, quality: data.quality};
     }
 
     await sleep(pollDelay(attempt));
   }
 
-  throw new Error(`Prepare timed out.\n\n${mediaServerHint()}`);
+  throw new Error(`Stream took too long to start.\n\n${mediaServerHint()}`);
+}
+
+export interface PlaybackController {
+  beginPlayback: (media: PlayableMedia) => void;
+  attachStreamUrl: (media: PlayableMedia, streamUrl: string) => void;
 }
 
 export async function prepareAndStartPlayback(
   item: MediaSearchResult,
   type: 'AUDIO' | 'VIDEO',
-  startPlayback: (media: PlayableMedia, streamUrl: string) => void,
+  playback: PlaybackController,
   onStatus?: (message?: string) => void,
 ): Promise<void> {
-  const {streamPath, quality} = await waitForMediaReady(item.videoId, type, onStatus);
-  const streamUrl = resolveStreamUrl(streamPath);
-
-  const media: PlayableMedia = {
+  const mediaBase: PlayableMedia = {
     title: item.title,
     type,
-    streamUrl,
+    streamUrl: '',
     thumbnailUrl: item.thumbnailUrl,
-    quality: quality || (type === 'AUDIO' ? item.audioFormat : item.videoFormat),
+    quality: type === 'AUDIO' ? item.audioFormat : item.videoFormat,
     sourceUrl: item.sourceUrl,
     videoId: item.videoId,
   };
 
-  startPlayback(media, streamUrl);
-  openPlayerScreen(media, streamUrl);
+  openPlayerScreen(mediaBase, '');
+  playback.beginPlayback(mediaBase);
+  onStatus?.('Opening player…');
+
+  try {
+    const {streamPath, quality} = await waitForMediaReady(item.videoId, type, onStatus);
+    const streamUrl = resolveStreamUrl(streamPath);
+    const media: PlayableMedia = {
+      ...mediaBase,
+      streamUrl,
+      quality: quality || mediaBase.quality,
+    };
+    playback.attachStreamUrl(media, streamUrl);
+  } catch (error) {
+    showPlaybackError(error);
+    throw error;
+  }
 }
 
 export async function saveMediaToDevice(

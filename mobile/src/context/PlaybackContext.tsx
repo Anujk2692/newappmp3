@@ -35,6 +35,8 @@ interface PlaybackContextValue {
   playbackRate: number;
   queueTracks: QueueTrack[];
   play: (media: PlayableMedia, streamUrl: string) => void;
+  beginPlayback: (media: PlayableMedia) => void;
+  attachStreamUrl: (media: PlayableMedia, streamUrl: string) => void;
   playQueue: (tracks: QueueTrack[], startIndex: number) => void;
   playQueueIndex: (index: number) => void;
   playNext: () => void;
@@ -102,6 +104,25 @@ export function PlaybackProvider({children}: {children: React.ReactNode}) {
     setPaused(false);
     setCurrentTime(0);
     setDuration(0);
+    setBuffering(true);
+    setStreamKey(key => key + 1);
+    void pushRecentMedia(nextMedia, nextStreamUrl);
+  }, []);
+
+  const beginPlayback = useCallback((nextMedia: PlayableMedia) => {
+    clearQueue();
+    setMedia(nextMedia);
+    setStreamUrl(null);
+    setPaused(true);
+    setCurrentTime(0);
+    setDuration(0);
+    setBuffering(true);
+  }, [clearQueue]);
+
+  const attachStreamUrl = useCallback((nextMedia: PlayableMedia, nextStreamUrl: string) => {
+    setMedia(nextMedia);
+    setStreamUrl(nextStreamUrl);
+    setPaused(false);
     setBuffering(true);
     setStreamKey(key => key + 1);
     void pushRecentMedia(nextMedia, nextStreamUrl);
@@ -309,6 +330,8 @@ export function PlaybackProvider({children}: {children: React.ReactNode}) {
       playbackRate,
       queueTracks,
       play,
+      beginPlayback,
+      attachStreamUrl,
       playQueue,
       playQueueIndex,
       playNext,
@@ -343,6 +366,8 @@ export function PlaybackProvider({children}: {children: React.ReactNode}) {
       playbackRate,
       queueTracks,
       play,
+      beginPlayback,
+      attachStreamUrl,
       playQueue,
       playQueueIndex,
       playNext,

@@ -23,6 +23,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(e.getMessage()));
     }
 
+    @ExceptionHandler(com.mediaapp.shared.exception.DomainException.class)
+    public ResponseEntity<ApiResponse<Void>> domain(com.mediaapp.shared.exception.DomainException e) {
+        log.warn("Domain rule violated: {}", e.getMessage());
+        return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+    }
+
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiResponse<Void>> uploadTooLarge(MaxUploadSizeExceededException e) {
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
