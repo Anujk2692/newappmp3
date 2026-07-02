@@ -162,6 +162,10 @@ export function SearchScreen() {
             downloading={downloading[item.videoId] || null}
             playing={playing[item.videoId] || null}
             onPress={() => handlePlay(item, 'AUDIO')}
+            onPressIn={() => {
+              prefetchMediaPrepare(item.videoId, 'AUDIO');
+              prefetchMediaPrepare(item.videoId, 'VIDEO');
+            }}
             onPlayAudio={() => handlePlay(item, 'AUDIO')}
             onPlayVideo={() => handlePlay(item, 'VIDEO')}
             onDownloadAudio={() => handleDownload(item, 'AUDIO')}

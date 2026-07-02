@@ -30,14 +30,14 @@ export const mediaApi = {
     httpRequest<PlayUrlResponse>(
       `/api/media/play/${videoId}?type=${type}`,
       {},
-      isProductionMode() ? 45000 : 12000,
+      5000,
     ),
 
   prepare: (videoId: string, type: 'AUDIO' | 'VIDEO') =>
     httpRequest<PrepareStatusResponse>(
       `/api/media/prepare/${videoId}?type=${type}`,
       {},
-      25000,
+      15000,
     ),
 
   getAudioLibrary: () => httpRequest<MediaItem[]>('/api/media/library/audio'),

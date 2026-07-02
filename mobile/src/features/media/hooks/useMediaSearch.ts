@@ -3,7 +3,7 @@ import {Alert} from 'react-native';
 import {ensureApiServer, wakeCloudServer} from '../../../core/api/httpClient';
 import {isProductionMode} from '../../../config';
 import {connectionErrorHint, isRecoverableRequestError} from '../../../utils/serverConnection';
-import {prefetchSearchResults} from '../../../utils/mediaPrefetch';
+import {prefetchSearchResults, warmMediaServer} from '../../../utils/mediaPrefetch';
 import {getCachedSearch, setCachedSearch} from '../../../utils/searchCache';
 import {mediaApi} from '../api/mediaApi';
 import type {MediaSearchResult} from '../domain/types';
@@ -36,6 +36,9 @@ export function useMediaSearch() {
     setLoading(true);
     try {
       await ensureApiServer();
+      if (isProductionMode()) {
+        void warmMediaServer().catch(() => undefined);
+      }
       let response = await mediaApi.search(q, controller.signal);
       if (seq !== seqRef.current) {
         return;

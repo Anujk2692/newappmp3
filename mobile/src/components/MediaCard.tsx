@@ -25,6 +25,7 @@ interface MediaCardProps {
   onDownloadVideo?: () => void;
   onDelete?: () => void;
   onPress?: () => void;
+  onPressIn?: () => void;
   downloading?: 'AUDIO' | 'VIDEO' | null;
   playing?: 'AUDIO' | 'VIDEO' | null;
   mode?: 'search' | 'library';
@@ -54,6 +55,7 @@ export function MediaCard({
   onDownloadVideo,
   onDelete,
   onPress,
+  onPressIn,
   downloading,
   playing,
   mode = 'search',
@@ -71,6 +73,7 @@ export function MediaCard({
       <TouchableOpacity
         style={[styles.main, {padding: layout.isCompact ? SPACING.sm : SPACING.md}]}
         onPress={onPress}
+        onPressIn={onPressIn}
         activeOpacity={onPress ? 0.88 : 1}
         disabled={!onPress}>
         <View style={[styles.thumbWrap, type === 'VIDEO' ? styles.thumbVideo : styles.thumbAudio]}>

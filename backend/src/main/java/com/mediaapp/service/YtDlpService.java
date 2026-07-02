@@ -240,14 +240,15 @@ public class YtDlpService {
         return resolveDirectUrl(sourceUrl, type, timeoutSeconds, EXTRACTOR_PROFILES);
     }
 
-    /** Fast path for playback — fewer profiles, shorter wait. */
+    /** Fast path for playback — single iOS profile, no remote ejs fetch. */
     public String resolveDirectUrlFast(String sourceUrl, MediaTypeArg type, int timeoutSeconds)
             throws IOException, InterruptedException {
-        String[] fastProfiles = {
-                EXTRACTOR_PROFILES[0],
-                EXTRACTOR_PROFILES[1],
-        };
-        return resolveDirectUrl(sourceUrl, type, timeoutSeconds, fastProfiles);
+        return resolveDirectUrl(
+                sourceUrl,
+                type,
+                timeoutSeconds,
+                new String[] {EXTRACTOR_PROFILES[0]},
+                true);
     }
 
     private String resolveDirectUrl(
@@ -255,6 +256,16 @@ public class YtDlpService {
             MediaTypeArg type,
             int timeoutSeconds,
             String[] profiles)
+            throws IOException, InterruptedException {
+        return resolveDirectUrl(sourceUrl, type, timeoutSeconds, profiles, false);
+    }
+
+    private String resolveDirectUrl(
+            String sourceUrl,
+            MediaTypeArg type,
+            int timeoutSeconds,
+            String[] profiles,
+            boolean fastExtract)
             throws IOException, InterruptedException {
         String format = type == MediaTypeArg.AUDIO
                 ? "140/bestaudio[ext=m4a]/bestaudio/best"
@@ -264,7 +275,7 @@ public class YtDlpService {
             List<String> cmd = new ArrayList<>();
             cmd.add(ytDlpPath);
             cmd.add(sourceUrl);
-            appendExtractArgs(cmd, profile);
+            appendExtractArgs(cmd, profile, fastExtract);
             cmd.add("-g");
             cmd.add("-f");
             cmd.add(format);
@@ -297,12 +308,18 @@ public class YtDlpService {
     }
 
     private void appendExtractArgs(List<String> cmd, String extractorProfile) {
+        appendExtractArgs(cmd, extractorProfile, false);
+    }
+
+    private void appendExtractArgs(List<String> cmd, String extractorProfile, boolean fastExtract) {
         cmd.add("--no-playlist");
         cmd.add("--no-warnings");
         cmd.add("--extractor-args");
         cmd.add(extractorProfile);
-        cmd.add("--remote-components");
-        cmd.add("ejs:github");
+        if (!fastExtract) {
+            cmd.add("--remote-components");
+            cmd.add("ejs:github");
+        }
         cmd.add("--user-agent");
         cmd.add(USER_AGENT);
         if (effectiveCookiesPath != null) {

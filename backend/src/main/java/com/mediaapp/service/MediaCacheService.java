@@ -110,19 +110,19 @@ public class MediaCacheService {
                 jobs.put(key, readyDirectDto(videoId, type, directUrl));
                 return;
             } catch (Exception directEx) {
-                log.info("Direct URL unavailable for {} {}, caching file: {}", videoId, type, directEx.getMessage());
+                log.info("Direct URL unavailable for {} {}: {}", videoId, type, directEx.getMessage());
             }
 
             if (renderHost && !ytDlpService.hasCookies()) {
                 jobs.put(key, failedDto(
                         videoId,
                         type,
-                        "YouTube blocked cloud playback. Start Mac backend on same Wi‑Fi, or set YOUTUBE_COOKIES_BASE64 on Render."));
+                        cloudCookiesRequiredMessage()));
                 return;
             }
 
-            Path cached = mediaService.ensureCachedPlaybackPublic(videoId, type);
-            jobs.put(key, readyDto(videoId, type, cached, "Cached on server"));
+            mediaService.warmCacheAsync(videoId, type);
+            jobs.put(key, readyProxyDto(videoId, type));
         } catch (Exception e) {
             log.error("Prepare failed for {} {}", videoId, type, e);
             jobs.put(key, failedDto(videoId, type, mediaService.friendlyMediaError(e.getMessage())));
@@ -166,7 +166,19 @@ public class MediaCacheService {
         if (!ytDlpService.hasCookies()) {
             return base + " Cloud may need YouTube cookies — or use Mac backend on Wi‑Fi.";
         }
-        return base + " Usually 30–90 seconds.";
+        return base + " Usually 3–10 seconds.";
+    }
+
+    private PrepareStatusDto readyProxyDto(String videoId, MediaType type) {
+        return PrepareStatusDto.builder()
+                .videoId(videoId)
+                .type(type)
+                .status(PrepareStatusDto.Status.READY)
+                .streamUrl("/api/media/stream/" + videoId + "?type=" + type)
+                .contentType(mediaService.getStreamContentType(type))
+                .quality(type == MediaType.AUDIO ? "Streaming Audio" : "Streaming Video")
+                .message("Stream proxy")
+                .build();
     }
 
     private String cloudCookiesRequiredMessage() {

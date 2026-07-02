@@ -218,14 +218,34 @@ export async function pickBestApiServer(): Promise<ServerProbeResult | null> {
   return null;
 }
 
+const STICKY_MEDIA_SERVER_MS = 60_000;
+let stickyMediaServer: {result: ServerProbeResult; expiresAt: number} | null = null;
+
+export function invalidateStickyMediaServer(): void {
+  stickyMediaServer = null;
+}
+
 /** Pick the best server for play/download (full playback capability, auto LAN or cloud). */
 export async function pickBestMediaServer(): Promise<ServerProbeResult | null> {
+  if (stickyMediaServer && Date.now() < stickyMediaServer.expiresAt) {
+    const quick = await probeServerCapabilities(stickyMediaServer.result.base, 3000);
+    if (quick && isMediaPlayable(quick)) {
+      quick.source = stickyMediaServer.result.source;
+      return quick;
+    }
+    stickyMediaServer = null;
+  }
+
   const candidates = await collectServerCandidates(true);
+  const lanCandidates = candidates.filter(c => c.source !== 'cloud');
+  const cloudCandidates = candidates.filter(c => c.source === 'cloud');
+  const ordered = [...lanCandidates, ...cloudCandidates];
+
   const probes = (
     await Promise.all(
-      candidates.map(async candidate => {
+      ordered.map(async candidate => {
         const timeout =
-          candidate.source === 'cloud' ? 90000 : candidate.source === 'bonjour' ? 5000 : 4000;
+          candidate.source === 'cloud' ? 20000 : candidate.source === 'bonjour' ? 5000 : 4000;
         const probe = await probeServerCapabilities(candidate.base, timeout);
         if (!probe) {
           return null;
@@ -243,7 +263,9 @@ export async function pickBestMediaServer(): Promise<ServerProbeResult | null> {
   const playable = probes.filter(isMediaPlayable);
   if (playable.length > 0) {
     playable.sort(rankMediaServer);
-    return playable[0]!;
+    const picked = playable[0]!;
+    stickyMediaServer = {result: picked, expiresAt: Date.now() + STICKY_MEDIA_SERVER_MS};
+    return picked;
   }
 
   return null;

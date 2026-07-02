@@ -319,22 +319,7 @@ public class MediaService {
                         .build();
             }
 
-            // Return immediately — client polls /prepare; avoids blocking on yt-dlp here.
-            try {
-                String directUrl = resolveDirectUrl(videoId, type, true);
-                warmCacheAsync(videoId, type);
-                return PlayUrlDto.builder()
-                        .videoId(videoId)
-                        .type(type)
-                        .streamUrl(directUrl)
-                        .contentType(getStreamContentType(type))
-                        .quality(type == MediaType.AUDIO ? "Streaming Audio" : "Streaming Video")
-                        .cached(false)
-                        .build();
-            } catch (Exception fastEx) {
-                log.debug("Fast play URL unavailable for {} {}: {}", videoId, type, fastEx.getMessage());
-            }
-
+            // Return immediately — client polls /prepare; never block HTTP on yt-dlp here.
             return PlayUrlDto.builder()
                     .videoId(videoId)
                     .type(type)
