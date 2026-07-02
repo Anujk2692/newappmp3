@@ -69,23 +69,33 @@ export function isReachableHealthStatus(status: unknown): boolean {
   return status === 'UP' || status === 'DEGRADED';
 }
 
-/** User-facing hint when API calls fail — no misleading "port 8080" in cloud mode. */
+function isCloudBase(base: string): boolean {
+  return base.startsWith('https://') || base.includes('onrender.com');
+}
+
+/** User-facing hint when API calls fail — reflects the server URL in use. */
 export function connectionErrorHint(): string {
   const base = getApiBaseUrl();
-  if (isProductionMode() || base.startsWith('https://')) {
+  if (isCloudBase(base)) {
     return (
       'Cannot reach the cloud server. Check internet (Wi‑Fi or mobile data). ' +
       'On Render free tier, wait up to 3 minutes and try again — your Mac does not need to be on.'
     );
   }
+  if (base.startsWith('http://192.168.') || base.startsWith('http://10.')) {
+    return (
+      'Cannot reach your Mac backend on the same Wi‑Fi. Start it with: cd backend && mvn spring-boot:run, ' +
+      'update LAN_BACKEND_HOST in local.config.ts, and enable Local Network for this app in iPhone Settings.'
+    );
+  }
   return (
-    'Cannot reach your Mac backend. Start it with: cd backend && mvn spring-boot:run ' +
-    '(port 8080), same Wi‑Fi, Local Network enabled — or switch to cloud in production.config.ts.'
+    'Cannot reach the backend. Start it with: cd backend && mvn spring-boot:run (port 8080), ' +
+    'same Wi‑Fi, Local Network enabled — or use cloud mode in production.config.ts.'
   );
 }
 
 export function networkErrorMessage(base = getApiBaseUrl()): string {
-  if (isProductionMode() || base.startsWith('https://')) {
+  if (isCloudBase(base)) {
     return (
       `Cannot reach ${base}. Check internet. Render free tier may sleep — wait ~2 min and retry.`
     );
@@ -96,8 +106,25 @@ export function networkErrorMessage(base = getApiBaseUrl()): string {
 }
 
 export function requestTimeoutMessage(): string {
-  if (isProductionMode() || getApiBaseUrl().startsWith('https://')) {
+  if (isCloudBase(getApiBaseUrl())) {
     return 'Request timed out. Cloud server may be waking up — wait up to 3 min and try again.';
   }
   return 'Request timed out. Check that the backend is running on your Mac.';
+}
+
+export function isRecoverableRequestError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes('server error (502)') ||
+    msg.includes('server error (503)') ||
+    msg.includes('server error (504)') ||
+    msg.includes('network request failed') ||
+    msg.includes('timed out') ||
+    msg.includes('invalid server response') ||
+    msg.includes('empty response') ||
+    msg.includes('cannot reach')
+  );
 }

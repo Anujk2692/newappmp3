@@ -3,7 +3,7 @@
  * New code should import from feature api modules or core/api directly.
  */
 import {getApiBaseUrl, isProductionMode} from '../config';
-import {httpRequest, discoverServer, ensureMediaServer, discoverMediaServer} from '../core/api/httpClient';
+import {httpRequest, discoverServer, ensureApiServer, ensureMediaServer, discoverMediaServer, wakeCloudServer} from '../core/api/httpClient';
 import type {ApiResponse, HealthResponse} from '../core/api/types/common';
 import {mediaApi} from '../features/media/api/mediaApi';
 import {faceApi} from '../features/face/api/faceApi';
@@ -31,7 +31,7 @@ export type {
 export type {CaptureItem} from '../features/camera/domain/types';
 export type {HealthResponse} from '../core/api/types/common';
 
-export {discoverServer, ensureMediaServer, discoverMediaServer};
+export {discoverServer, ensureApiServer, ensureMediaServer, discoverMediaServer, wakeCloudServer};
 
 export const api = {
   health: () =>
