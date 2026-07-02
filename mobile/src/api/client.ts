@@ -5,6 +5,8 @@ import {
   isReachableHealthStatus,
   loadCachedApiUrl,
   networkErrorMessage,
+  orderServerCandidates,
+  probeTimeoutFor,
   requestTimeoutMessage,
   saveCachedApiUrl,
 } from '../utils/serverConnection';
@@ -146,16 +148,13 @@ export async function discoverServer(
   candidates = getServerCandidates(),
 ): Promise<string | null> {
   const apiKey = getApiKey();
-  const timeoutMs = isProductionMode() ? 120000 : 15000;
   const cached = await loadCachedApiUrl();
-  const ordered = cached
-    ? [cached, ...candidates.filter(c => c !== cached)]
-    : candidates;
+  const ordered = orderServerCandidates(candidates, cached);
 
   for (const base of ordered) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const timer = setTimeout(() => controller.abort(), probeTimeoutFor(base));
       const headers: Record<string, string> = {Accept: 'application/json'};
       if (apiKey) {
         headers['X-API-Key'] = apiKey;
@@ -182,10 +181,14 @@ export async function discoverServer(
   return null;
 }
 
+function defaultRequestTimeoutMs(): number {
+  return isProductionMode() ? 180000 : 120000;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
-  timeoutMs = 120000,
+  timeoutMs = defaultRequestTimeoutMs(),
 ): Promise<ApiResponse<T>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -242,7 +245,7 @@ export const api = {
     request<{status: string; app: string}>(
       '/api/health',
       {},
-      isProductionMode() ? 120000 : 8000,
+      isProductionMode() ? 180000 : 8000,
     ),
 
   searchMedia: (q: string) =>
@@ -262,7 +265,11 @@ export const api = {
     }, 600000),
 
   preparePlayUrl: (videoId: string, type: 'AUDIO' | 'VIDEO') =>
-    request<PlayUrlResponse>(`/api/media/play/${videoId}?type=${type}`, {}, 15000),
+    request<PlayUrlResponse>(
+      `/api/media/play/${videoId}?type=${type}`,
+      {},
+      isProductionMode() ? 120000 : 30000,
+    ),
 
   getAudioLibrary: () =>
     request<MediaItem[]>('/api/media/library/audio'),

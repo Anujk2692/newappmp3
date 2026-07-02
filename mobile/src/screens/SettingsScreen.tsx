@@ -11,8 +11,9 @@ import LinearGradient from 'react-native-linear-gradient';
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import {AppHeader} from '../components/AppHeader';
 import {useTheme} from '../context/ThemeContext';
-import {api} from '../api/client';
+import {api, discoverServer} from '../api/client';
 import {getApiBaseUrl, isProductionMode, RADIUS, SHADOW, SPACING} from '../config';
+import {clearCachedApiUrl} from '../utils/serverConnection';
 import {THEME_LIST, ThemeId} from '../theme/themes';
 import {openGuide, goToCameraTab, goToFacesTab, goToMediaTab} from '../navigation/navigationRef';
 import {useLayoutMetrics} from '../utils/layout';
@@ -22,12 +23,40 @@ export function SettingsScreen() {
   const navigation = useNavigation();
   const {themeId, setThemeId, colors, gradients} = useTheme();
   const [serverOk, setServerOk] = useState<boolean | null>(null);
+  const [retrying, setRetrying] = useState(false);
+
+  const refreshServer = useCallback(async (clearCache = false) => {
+    setServerOk(null);
+    if (clearCache) {
+      await clearCachedApiUrl();
+    }
+    const found = await discoverServer();
+    if (found) {
+      try {
+        const r = await api.health();
+        setServerOk(r.success);
+        return;
+      } catch {
+        // fall through
+      }
+    }
+    setServerOk(false);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      api.health().then(r => setServerOk(r.success)).catch(() => setServerOk(false));
-    }, []),
+      refreshServer();
+    }, [refreshServer]),
   );
+
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      await refreshServer(true);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   return (
     <LinearGradient colors={gradients.media} style={styles.root}>
@@ -64,6 +93,15 @@ export function SettingsScreen() {
               </Text>
             </View>
           </View>
+          <TouchableOpacity
+            style={[styles.retryBtn, {borderColor: colors.primary}]}
+            onPress={handleRetry}
+            disabled={retrying}>
+            <Icon name="refresh" size={16} color={colors.primary} />
+            <Text style={[styles.retryLabel, {color: colors.primary}]}>
+              {retrying ? 'Connecting…' : 'Retry connection'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Quick links */}
@@ -147,6 +185,17 @@ const styles = StyleSheet.create({
   statusText: {flex: 1, minWidth: 0},
   statusTitle: {fontWeight: '800', fontSize: 15},
   statusUrl: {fontSize: 12, fontWeight: '600', marginTop: 2},
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: SPACING.md,
+    paddingVertical: 10,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+  },
+  retryLabel: {fontWeight: '700', fontSize: 14},
   sectionTitle: {fontSize: 18, fontWeight: '800', marginBottom: 4},
   sectionHint: {fontSize: 13, fontWeight: '600', marginBottom: SPACING.md},
   linkGrid: {flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: SPACING.sm},

@@ -41,7 +41,7 @@ export function BackendGate({children}: {children: React.ReactNode}) {
     setStatus('fail');
     setError(
       production
-        ? 'Cloud server did not respond in time. Free Render tier sleeps — tap Try again and wait up to 2 minutes.'
+        ? 'Cloud server did not respond in time. Free Render tier sleeps — tap Try again and wait up to 3 minutes.'
         : 'Could not reach cloud or your Mac. Mac can be off if cloud works.',
     );
   }, [production]);
@@ -68,7 +68,7 @@ export function BackendGate({children}: {children: React.ReactNode}) {
         <Text style={styles.appName}>MediaFace</Text>
         <Text style={styles.tagline}>
           {production
-            ? 'Connecting to cloud…\nYour Mac can be off — first load may take up to 2 min'
+            ? 'Connecting to cloud…\nYour Mac can be off — first load may take up to 3 min'
             : 'Trying cloud first, then your Mac on Wi‑Fi…'}
         </Text>
         <ActivityIndicator color={COLORS.primary} style={styles.spinner} />

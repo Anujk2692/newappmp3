@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {getApiBaseUrl, isProductionMode} from '../config';
+import {PRODUCTION_API_URL} from '../production.config';
 
 const API_URL_KEY = '@mediaface/api_base_url';
 
@@ -23,6 +24,47 @@ export async function saveCachedApiUrl(url: string): Promise<void> {
   }
 }
 
+export async function clearCachedApiUrl(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(API_URL_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** Cloud first in production; ignore stale LAN cache when Mac is off. */
+export function orderServerCandidates(
+  candidates: string[],
+  cached: string | null,
+): string[] {
+  const cloud = PRODUCTION_API_URL.replace(/\/$/, '').trim();
+  const unique = (urls: string[]) =>
+    [...new Set(urls.filter(u => u && u.length > 0))];
+
+  if (isProductionMode()) {
+    const usableCached =
+      cached && cached.startsWith('https://') ? cached : null;
+    return unique([
+      cloud,
+      ...(usableCached && usableCached !== cloud ? [usableCached] : []),
+      ...candidates,
+    ]);
+  }
+
+  if (cached) {
+    return unique([cached, ...candidates.filter(c => c !== cached)]);
+  }
+  return unique(candidates);
+}
+
+/** Shorter timeout for LAN; longer for cloud (Render cold start). */
+export function probeTimeoutFor(base: string): number {
+  if (base.startsWith('https://')) {
+    return isProductionMode() ? 180000 : 45000;
+  }
+  return 6000;
+}
+
 export function isReachableHealthStatus(status: unknown): boolean {
   return status === 'UP' || status === 'DEGRADED';
 }
@@ -33,7 +75,7 @@ export function connectionErrorHint(): string {
   if (isProductionMode() || base.startsWith('https://')) {
     return (
       'Cannot reach the cloud server. Check internet (Wi‑Fi or mobile data). ' +
-      'On Render free tier, wait up to 2 minutes and try again — your Mac does not need to be on.'
+      'On Render free tier, wait up to 3 minutes and try again — your Mac does not need to be on.'
     );
   }
   return (
@@ -55,7 +97,7 @@ export function networkErrorMessage(base = getApiBaseUrl()): string {
 
 export function requestTimeoutMessage(): string {
   if (isProductionMode() || getApiBaseUrl().startsWith('https://')) {
-    return 'Request timed out. Cloud server may be waking up — wait and try again.';
+    return 'Request timed out. Cloud server may be waking up — wait up to 3 min and try again.';
   }
   return 'Request timed out. Check that the backend is running on your Mac.';
 }

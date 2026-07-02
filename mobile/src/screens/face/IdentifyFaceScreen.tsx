@@ -23,6 +23,7 @@ import {api, FaceIdentifyResult} from '../../api/client';
 import {COLORS, SPACING} from '../../config';
 import {FaceStackParamList} from '../../navigation/types';
 import {useLayoutMetrics} from '../../utils/layout';
+import {connectionErrorHint} from '../../utils/serverConnection';
 
 type Nav = NativeStackNavigationProp<FaceStackParamList>;
 
@@ -54,7 +55,7 @@ export function IdentifyFaceScreen() {
         Alert.alert('Failed', response.message || 'Identification failed');
       }
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Check backend connection');
+      Alert.alert('Error', e instanceof Error ? e.message : connectionErrorHint());
     } finally {
       setLoading(false);
     }

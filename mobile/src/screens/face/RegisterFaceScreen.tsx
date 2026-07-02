@@ -23,6 +23,7 @@ import {api, FaceViewHint} from '../../api/client';
 import {COLORS, SPACING} from '../../config';
 import {FaceStackParamList} from '../../navigation/types';
 import {useLayoutMetrics} from '../../utils/layout';
+import {connectionErrorHint} from '../../utils/serverConnection';
 
 type Props = NativeStackScreenProps<FaceStackParamList, 'RegisterFace'>;
 
@@ -125,7 +126,7 @@ export function RegisterFaceScreen({navigation}: Props) {
         Alert.alert('Failed', response.message || 'Could not register face');
       }
     } catch {
-      Alert.alert('Error', 'Registration failed. Check backend connection.');
+      Alert.alert('Error', connectionErrorHint());
     } finally {
       setLoading(false);
     }
