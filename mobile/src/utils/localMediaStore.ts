@@ -56,9 +56,18 @@ async function saveIndex(records: LocalMediaRecord[]): Promise<void> {
   await AsyncStorage.setItem(INDEX_KEY, JSON.stringify(records));
 }
 
+async function mkdirIfMissing(dir: string): Promise<void> {
+  const exists = await ReactNativeBlobUtil.fs.exists(dir);
+  if (!exists) {
+    await ReactNativeBlobUtil.fs.mkdir(dir);
+  }
+}
+
 export async function ensureMediaDirs(): Promise<void> {
-  await ReactNativeBlobUtil.fs.mkdir(`${mediaRootDir()}/audio`);
-  await ReactNativeBlobUtil.fs.mkdir(`${mediaRootDir()}/video`);
+  const root = mediaRootDir();
+  await mkdirIfMissing(root);
+  await mkdirIfMissing(`${root}/audio`);
+  await mkdirIfMissing(`${root}/video`);
 }
 
 export async function getLocalMediaRecord(
@@ -187,6 +196,7 @@ export async function downloadMediaToDevice(
   }
 
   await ensureMediaServer();
+
   let response;
   try {
     response = await mediaApi.download({

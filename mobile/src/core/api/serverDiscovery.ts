@@ -174,8 +174,10 @@ function rankMediaServer(a: ServerProbeResult, b: ServerProbeResult): number {
     let s = 0;
     if (r.playDownload === 'UP') {
       s += 100;
+    } else if (r.playDownload === 'LIMITED' && !isCloudBase(r.base)) {
+      s += 80;
     } else if (r.playDownload === 'LIMITED') {
-      s += 40;
+      s += 10;
     }
     if (r.source === 'bonjour') {
       s += 20;
@@ -188,6 +190,14 @@ function rankMediaServer(a: ServerProbeResult, b: ServerProbeResult): number {
     return s;
   };
   return score(b) - score(a);
+}
+
+/** Cloud needs cookies; Mac/LAN can play even when status is LIMITED (legacy backends). */
+export function isMediaPlayable(probe: ServerProbeResult): boolean {
+  if (probe.playDownload === 'UP') {
+    return true;
+  }
+  return probe.playDownload === 'LIMITED' && !isCloudBase(probe.base);
 }
 
 /** Pick the best reachable server for search/API (cloud preferred for global reach). */
@@ -230,7 +240,7 @@ export async function pickBestMediaServer(): Promise<ServerProbeResult | null> {
     return null;
   }
 
-  const playable = probes.filter(p => p.playDownload === 'UP');
+  const playable = probes.filter(isMediaPlayable);
   if (playable.length > 0) {
     playable.sort(rankMediaServer);
     return playable[0]!;

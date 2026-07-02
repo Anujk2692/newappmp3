@@ -94,7 +94,24 @@ function mediaServerHint(): string {
   if (isLanBackend()) {
     return 'Using nearby MediaFace backend on Wi‑Fi.';
   }
-  return 'For playback anywhere, set YOUTUBE_COOKIES_BASE64 on Render. On Wi‑Fi, start Mac backend (auto-discovered).';
+  return (
+    'Cloud needs YouTube cookies on Render.\n\n' +
+    'On Mac run: ./scripts/export-youtube-cookies.sh\n' +
+    'Paste into Render → YOUTUBE_COOKIES_BASE64\n\n' +
+    'Or start Mac backend on same Wi‑Fi (auto-discovered).'
+  );
+}
+
+async function assertPlaybackCapable(): Promise<void> {
+  let status;
+  try {
+    status = await mediaApi.status();
+  } catch {
+    return;
+  }
+  if (status.success && status.data?.playDownload === 'LIMITED' && !isLanBackend()) {
+    throw new Error(mediaServerHint());
+  }
 }
 
 async function tryFastPlayUrl(
@@ -142,6 +159,7 @@ async function waitForMediaReadyOnce(
   }
 
   await ensureMediaServer();
+  await assertPlaybackCapable();
   onStatus?.('Starting stream…');
 
   const searchStreamPath =
